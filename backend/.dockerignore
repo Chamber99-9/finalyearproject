@@ -1,0 +1,13 @@
+# Keep the build context small and avoid leaking local files/secrets.
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+uploads/
+.pytest_cache/
+.mypy_cache/
+tests/
+.env
+.env.*
+!.env.example
+.DS_Store

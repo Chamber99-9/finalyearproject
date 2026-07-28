@@ -1,0 +1,38 @@
+# Render Blueprint for the Sajilo Loan backend (FastAPI + Tesseract OCR).
+# In Render: New + -> "Blueprint" -> pick this repo. Render reads this file,
+# builds the Docker image from backend/, and creates the web service.
+#
+# You still set the two "sync: false" secrets in the dashboard after the first
+# deploy: MONGODB_URI (from MongoDB Atlas) and CORS_ALLOWED_ORIGINS (your
+# Vercel URL). See DEPLOYMENT.md for the full walkthrough.
+services:
+  - type: web
+    name: sajilo-loan-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: MONGODB_DB
+        value: sajilo_loan
+      # Strong 32+ char secret generated and stored by Render automatically.
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: TESSERACT_CMD
+        value: /usr/bin/tesseract
+      - key: UPLOAD_DIR
+        value: /app/uploads
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "60"
+      # --- Set these in the dashboard (kept out of source control) ---
+      # MongoDB Atlas SRV connection string, e.g.
+      # mongodb+srv://user:pass@cluster0.xxxx.mongodb.net/?retryWrites=true&w=majority
+      - key: MONGODB_URI
+        sync: false
+      # Your deployed frontend origin, e.g. https://sajilo-loan.vercel.app
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false

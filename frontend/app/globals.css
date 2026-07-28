@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f3f6f8;
+  color: #0f172a;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+@layer base {
+  input,
+  select,
+  textarea {
+    @apply rounded-md border border-slate-300 bg-white text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 disabled:cursor-not-allowed disabled:bg-slate-100;
+  }
+
+  table tbody tr {
+    @apply transition hover:bg-slate-50/80;
+  }
+}
+
+@layer components {
+  .page-wrap {
+    @apply mx-auto max-w-7xl px-5 py-10 sm:px-6 lg:py-14;
+  }
+
+  .page-heading {
+    @apply flex flex-col gap-4 border-b border-slate-200 pb-7 lg:flex-row lg:items-end lg:justify-between;
+  }
+
+  .eyebrow {
+    @apply text-sm font-semibold uppercase tracking-wide text-emerald-700;
+  }
+
+  .panel {
+    @apply rounded-lg border border-slate-200 bg-white shadow-sm;
+  }
+
+  .panel-pad {
+    @apply rounded-lg border border-slate-200 bg-white p-5 shadow-sm;
+  }
+
+  .metric-card {
+    @apply rounded-lg border border-slate-200 bg-white p-5 shadow-sm;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-md bg-emerald-700 px-4 py-2.5 text-center font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-4 py-2.5 text-center font-semibold text-slate-800 shadow-sm transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100;
+  }
+
+  .btn-muted {
+    @apply inline-flex items-center justify-center rounded-md bg-slate-100 px-4 py-2.5 text-center font-semibold text-slate-700 transition hover:bg-slate-200;
+  }
+
+  .status-pill {
+    @apply inline-flex rounded-md px-2.5 py-1 text-sm font-semibold;
+  }
+
+  .table-shell {
+    @apply mt-6 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm;
+  }
+
+  .table-head {
+    @apply bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-600;
+  }
+
+  .alert-error {
+    @apply rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700;
+  }
+
+  .alert-success {
+    @apply rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800;
+  }
+
+  .alert-info {
+    @apply rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700;
+  }
+}

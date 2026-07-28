@@ -1,0 +1,48 @@
+import { NextRequest, NextResponse } from "next/server";
+
+import {
+  API_BASE_URL,
+  AUTH_COOKIE_NAME,
+  backendErrorMessage,
+  errorResponse,
+  readBackendJson
+} from "../../../auth/_utils";
+
+type RouteContext = {
+  params: Promise<{
+    documentId: string;
+  }>;
+};
+
+export async function POST(request: NextRequest, context: RouteContext) {
+  const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
+
+  if (!token) {
+    return errorResponse("You must be logged in to run OCR.", 401);
+  }
+
+  const { documentId } = await context.params;
+
+  let backendResponse: Response;
+  try {
+    backendResponse = await fetch(`${API_BASE_URL}/ocr/extract/${documentId}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+  } catch {
+    return errorResponse("OCR service is unavailable.", 503);
+  }
+
+  const payload = await readBackendJson(backendResponse);
+
+  if (!backendResponse.ok) {
+    return errorResponse(
+      backendErrorMessage(payload, "Could not extract OCR text."),
+      backendResponse.status
+    );
+  }
+
+  return NextResponse.json({ ocr_result: payload });
+}

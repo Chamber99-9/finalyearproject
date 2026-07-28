@@ -1,0 +1,278 @@
+from datetime import UTC, datetime
+from typing import Any
+
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo import ReturnDocument
+
+from app.models.application import ApplicationStatus
+from app.models.user import UserRole
+from app.schemas.officer import (
+    AdditionalDocumentRequestCreate,
+    ApplicationStatusUpdateRequest,
+    CounterOfferCreate,
+)
+from app.services.application_service import (
+    get_application_by_id,
+    list_officer_applications,
+    serialize_application,
+    update_application_status,
+)
+from app.services.audit_service import AuditLogStorageError, create_audit_log
+from app.services.document_request_service import (
+    DocumentRequestStorageError,
+    create_document_request,
+)
+from app.services.document_service import list_documents_for_application, serialize_document
+from app.services.flag_service import (
+    get_latest_application_flags,
+    serialize_application_flags,
+)
+from app.services.ocr_service import (
+    get_latest_ocr_result_for_document,
+    serialize_ocr_result,
+)
+from app.services.notification_service import (
+    NotificationStorageError,
+    create_notification,
+)
+from app.services.risk_service import (
+    get_latest_risk_score_for_application,
+    serialize_risk_score,
+)
+
+
+class OfficerApplicationNotFoundError(Exception):
+    pass
+
+
+class OfficerWorkflowStorageError(Exception):
+    pass
+
+
+class CounterOfferValidationError(Exception):
+    pass
+
+
+async def list_review_applications(
+    database: AsyncIOMotorDatabase,
+) -> list[dict[str, Any]]:
+    applications = await list_officer_applications(database)
+    return [serialize_application(application) for application in applications]
+
+
+async def get_officer_application_detail(
+    database: AsyncIOMotorDatabase,
+    application_id: str,
+) -> dict[str, Any]:
+    application = await get_application_by_id(database, application_id)
+    if application is None:
+        raise OfficerApplicationNotFoundError
+
+    application_id = str(application["_id"])
+    documents = await list_documents_for_application(database, application_id)
+    ocr_results: list[dict[str, Any]] = []
+    for document in documents:
+        document_id = str(document.get("_id") or document.get("id"))
+        if not document_id:
+            continue
+
+        ocr_result = await get_latest_ocr_result_for_document(database, document_id)
+        if ocr_result is not None:
+            ocr_results.append(serialize_ocr_result(ocr_result))
+
+    risk_score = await get_latest_risk_score_for_application(database, application_id)
+    suspicious_flags = await get_latest_application_flags(database, application_id)
+
+    return {
+        "application": serialize_application(application),
+        "documents": [serialize_document(document) for document in documents],
+        "ocr_results": ocr_results,
+        "credit_risk_score": (
+            serialize_risk_score(risk_score) if risk_score is not None else None
+        ),
+        "suspicious_flags": (
+            serialize_application_flags(suspicious_flags)
+            if suspicious_flags is not None
+            else None
+        ),
+    }
+
+
+def get_actor_id(current_user: dict[str, Any]) -> str:
+    return str(current_user.get("_id") or current_user.get("id"))
+
+
+async def update_officer_application_status(
+    *,
+    database: AsyncIOMotorDatabase,
+    application_id: str,
+    payload: ApplicationStatusUpdateRequest,
+    current_user: dict[str, Any],
+) -> dict[str, Any]:
+    application = await get_application_by_id(database, application_id)
+    if application is None:
+        raise OfficerApplicationNotFoundError
+
+    updated_application = await update_application_status(
+        database,
+        application_id,
+        payload.status,
+    )
+    if updated_application is None:
+        raise OfficerApplicationNotFoundError
+
+    try:
+        await create_audit_log(
+            database=database,
+            user_id=get_actor_id(current_user),
+            action="officer_status_updated",
+            entity_type="loan_application",
+            entity_id=application_id,
+            details={
+                "actor_role": UserRole.OFFICER.value,
+                "previous_status": str(application.get("status")),
+                "new_status": payload.status.value,
+                "note": payload.note,
+            },
+        )
+        if payload.status in {ApplicationStatus.APPROVED, ApplicationStatus.REJECTED}:
+            status_label = (
+                "approved"
+                if payload.status == ApplicationStatus.APPROVED
+                else "rejected"
+            )
+            await create_notification(
+                database=database,
+                user_id=str(application.get("applicant_id")),
+                title=f"Application {status_label}",
+                message=f"Your loan application has been {status_label}.",
+            )
+    except (AuditLogStorageError, NotificationStorageError) as error:
+        raise OfficerWorkflowStorageError from error
+
+    return serialize_application(updated_application)
+
+
+async def create_counter_offer(
+    *,
+    database: AsyncIOMotorDatabase,
+    application_id: str,
+    payload: CounterOfferCreate,
+    current_user: dict[str, Any],
+) -> dict[str, Any]:
+    application = await get_application_by_id(database, application_id)
+    if application is None:
+        raise OfficerApplicationNotFoundError
+
+    requested_amount = application.get("requested_loan_amount")
+    if isinstance(requested_amount, (int, float)) and payload.offered_loan_amount >= requested_amount:
+        raise CounterOfferValidationError
+
+    actor_id = get_actor_id(current_user)
+    previous_status = str(application.get("status"))
+    updated_application = await database["loan_applications"].find_one_and_update(
+        {"_id": application["_id"]},
+        {
+            "$set": {
+                "status": ApplicationStatus.COUNTER_OFFERED.value,
+                "offered_loan_amount": payload.offered_loan_amount,
+                "offer_message": payload.message,
+                "offer_status": "pending",
+                "updated_at": datetime.now(UTC),
+            }
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+    if updated_application is None:
+        raise OfficerApplicationNotFoundError
+
+    try:
+        await create_audit_log(
+            database=database,
+            user_id=actor_id,
+            action="counter_offer_sent",
+            entity_type="loan_application",
+            entity_id=application_id,
+            details={
+                "actor_role": UserRole.OFFICER.value,
+                "previous_status": previous_status,
+                "new_status": ApplicationStatus.COUNTER_OFFERED.value,
+                "requested_loan_amount": requested_amount,
+                "offered_loan_amount": payload.offered_loan_amount,
+            },
+        )
+        await create_notification(
+            database=database,
+            user_id=str(application.get("applicant_id")),
+            title="Loan amount offer received",
+            message=(
+                f"A loan officer offered NPR {payload.offered_loan_amount:,.0f}. "
+                f"{payload.message}"
+            ),
+        )
+    except (AuditLogStorageError, NotificationStorageError) as error:
+        raise OfficerWorkflowStorageError from error
+
+    return serialize_application(updated_application)
+
+
+async def request_additional_documents(
+    *,
+    database: AsyncIOMotorDatabase,
+    application_id: str,
+    payload: AdditionalDocumentRequestCreate,
+    current_user: dict[str, Any],
+) -> dict[str, Any]:
+    application = await get_application_by_id(database, application_id)
+    if application is None:
+        raise OfficerApplicationNotFoundError
+
+    actor_id = get_actor_id(current_user)
+    try:
+        document_request = await create_document_request(
+            database=database,
+            application_id=application_id,
+            requested_by=actor_id,
+            document_types=payload.document_types,
+            message=payload.message,
+        )
+        updated_application = await update_application_status(
+            database,
+            application_id,
+            ApplicationStatus.DOCUMENT_REQUESTED,
+        )
+        if updated_application is None:
+            raise OfficerApplicationNotFoundError
+
+        await create_audit_log(
+            database=database,
+            user_id=actor_id,
+            action="officer_status_updated",
+            entity_type="loan_application",
+            entity_id=application_id,
+            details={
+                "actor_role": UserRole.OFFICER.value,
+                "previous_status": str(application.get("status")),
+                "new_status": ApplicationStatus.DOCUMENT_REQUESTED.value,
+                "note": payload.message,
+                "document_request_id": str(document_request["_id"]),
+                "document_types": [
+                    document_type.value for document_type in payload.document_types
+                ],
+            },
+        )
+        await create_notification(
+            database=database,
+            user_id=str(application.get("applicant_id")),
+            title="Additional document requested",
+            message=payload.message
+            or "A loan officer requested additional documents for your application.",
+        )
+    except (
+        AuditLogStorageError,
+        DocumentRequestStorageError,
+        NotificationStorageError,
+    ) as error:
+        raise OfficerWorkflowStorageError from error
+
+    return document_request
