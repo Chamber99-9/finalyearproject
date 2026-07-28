@@ -1,5 +1,6 @@
 # Sajilo Loan
 
+vercel link : https://finalyearproject-rosy.vercel.app/login
 Sajilo Loan is a Digital Loan Origination System for Nepal's banks, cooperatives, and finance companies. This repository is currently a clean starter structure for a Next.js frontend and FastAPI backend.
 
 ## Tech Stack
