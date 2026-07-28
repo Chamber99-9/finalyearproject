@@ -31,6 +31,22 @@ class ApplicationCreateRequest(BaseModel):
     dependents: int = Field(..., ge=0)
     savings_buffer: SavingsBuffer
     repayment_history: RepaymentHistory
+    # PAN + collateral (collateral is required for non-instant loans above the
+    # threshold — enforced on submit).
+    pan_number: str | None = Field(None, min_length=9, max_length=9)
+    collateral_type: str | None = Field(None, max_length=100)
+    collateral_value: float | None = Field(None, ge=0)
+    collateral_description: str | None = Field(None, max_length=300)
+
+    @field_validator("pan_number")
+    @classmethod
+    def validate_pan(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        value = value.strip()
+        if not value.isdigit() or len(value) != 9:
+            raise ValueError("PAN number must be exactly 9 digits.")
+        return value
 
     @field_validator(
         "full_name",
@@ -80,6 +96,20 @@ class ApplicationUpdateRequest(BaseModel):
     dependents: int | None = Field(None, ge=0)
     savings_buffer: SavingsBuffer | None = None
     repayment_history: RepaymentHistory | None = None
+    pan_number: str | None = Field(None, min_length=9, max_length=9)
+    collateral_type: str | None = Field(None, max_length=100)
+    collateral_value: float | None = Field(None, ge=0)
+    collateral_description: str | None = Field(None, max_length=300)
+
+    @field_validator("pan_number")
+    @classmethod
+    def validate_optional_pan(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        value = value.strip()
+        if not value.isdigit() or len(value) != 9:
+            raise ValueError("PAN number must be exactly 9 digits.")
+        return value
 
     @field_validator(
         "full_name",
@@ -130,6 +160,11 @@ class ApplicationResponse(BaseModel):
     total_payment: float | None = None
     emi_dti_ratio: float | None = None
     affordability: str | None = None
+    pan_number: str | None = None
+    collateral_type: str | None = None
+    collateral_value: float | None = None
+    collateral_description: str | None = None
+    verification: dict | None = None
     loan_purpose: str | None = None
     dependents: int | None = None
     savings_buffer: SavingsBuffer | None = None

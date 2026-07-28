@@ -25,6 +25,7 @@ def create_user_document(
         "phone": phone.strip(),
         "password_hash": password_hash,
         "role": role.value,
+        "is_blacklisted": False,
         "created_at": datetime.now(UTC),
     }
 

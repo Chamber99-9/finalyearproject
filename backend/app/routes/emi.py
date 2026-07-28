@@ -30,7 +30,7 @@ from app.services.emi_service import (
     calculate_emi,
     normalize_tenure_to_months,
 )
-from app.services.loan_settings_service import get_loan_interest_rate
+from app.services.loan_rate_service import effective_rate_value
 
 router = APIRouter(prefix="/emi", tags=["emi"])
 
@@ -41,12 +41,18 @@ async def preview_emi_route(
     current_user: Annotated[dict, Depends(get_current_user)],
     database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
 ) -> dict:
-    """Preview the EMI for a Personal Loan using the bank-defined rate.
+    """Preview the EMI using the dynamic rate for the chosen loan type + tenure.
 
-    The customer supplies only amount + tenure; the interest rate is read from
-    the bank settings and returned so the form can display it read-only.
+    The customer supplies amount, tenure and loan type; the interest rate is
+    computed by the bank engine (base + type spread + tenure adjustment) and
+    returned so the form can display it read-only.
     """
-    interest_rate_used = await get_loan_interest_rate(database, LoanType.PERSONAL.value)
+    interest_rate_used = await effective_rate_value(
+        database,
+        loan_type=payload.loan_type,
+        tenure=payload.tenure,
+        tenure_unit=payload.tenure_unit,
+    )
     try:
         emi = calculate_emi(
             loan_amount=payload.loan_amount,

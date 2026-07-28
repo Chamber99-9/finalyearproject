@@ -12,11 +12,18 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.auth.dependencies import get_authenticated_user_id, get_current_user, require_admin
 from app.database import get_database
 from app.models.application import LoanType
-from app.schemas.settings import LoanInterestRateResponse, LoanInterestRateUpdateRequest
+from app.schemas.settings import (
+    BaseLendingRateResponse,
+    BaseLendingRateUpdateRequest,
+    LoanInterestRateResponse,
+    LoanInterestRateUpdateRequest,
+)
 from app.services.audit_service import AuditLogStorageError, create_audit_log
 from app.services.loan_settings_service import (
     LoanSettingsError,
+    get_base_lending_rate,
     get_personal_loan_interest_rate,
+    set_base_lending_rate,
     set_personal_loan_interest_rate,
 )
 
@@ -35,6 +42,52 @@ async def read_personal_rate(
     """
     rate = await get_personal_loan_interest_rate(database)
     return {"loan_type": LoanType.PERSONAL.value, "interest_rate": rate}
+
+
+@router.get("/base-rate", response_model=BaseLendingRateResponse)
+async def read_base_rate(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+) -> dict:
+    """Return the bank base lending rate used by the dynamic rate engine."""
+    return {"base_rate": await get_base_lending_rate(database)}
+
+
+@router.put("/base-rate", response_model=BaseLendingRateResponse)
+async def update_base_rate(
+    payload: BaseLendingRateUpdateRequest,
+    current_user: Annotated[dict, Depends(require_admin)],
+    database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+) -> dict:
+    """Update the bank base lending rate (admin only).
+
+    Existing applications keep their frozen ``interest_rate_used``; only new
+    quotes/applications use the new base rate.
+    """
+    try:
+        base_rate = await set_base_lending_rate(database, payload.base_rate)
+    except LoanSettingsError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+
+    try:
+        await create_audit_log(
+            database=database,
+            user_id=get_authenticated_user_id(current_user),
+            action="base_lending_rate_updated",
+            entity_type="app_settings",
+            entity_id="base_lending_rate",
+            details={"new_base_rate": base_rate},
+        )
+    except AuditLogStorageError as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Base rate updated, but audit log could not be created.",
+        ) from error
+
+    return {"base_rate": base_rate}
 
 
 @router.put("/personal-rate", response_model=LoanInterestRateResponse)

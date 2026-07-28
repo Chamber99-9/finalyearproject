@@ -18,7 +18,9 @@ from app.schemas.application import (
 from app.schemas.document import DocumentResponse
 from app.schemas.ocr import OCRResultResponse
 from app.services.application_service import (
+    CollateralRequiredError,
     IncompleteApplicationError,
+    LoanAmountExceedsCapError,
     ApplicationNotFoundError,
     ApplicationStatusError,
     create_draft_application,
@@ -202,6 +204,22 @@ async def submit_application(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Complete all required application fields before submitting.",
+        ) from error
+    except LoanAmountExceedsCapError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Requested amount exceeds your eligibility cap of "
+                f"{error.max_amount:,.0f} based on your monthly income."
+            ),
+        ) from error
+    except CollateralRequiredError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Loans above 200,000 (except instant loans) require collateral. "
+                "Add collateral details before submitting."
+            ),
         ) from error
 
     try:

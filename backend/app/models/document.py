@@ -9,6 +9,8 @@ class DocumentType(StrEnum):
     CITIZENSHIP_DOCUMENT = "citizenship_document"
     SALARY_SLIP = "salary_slip"
     BANK_STATEMENT = "bank_statement"
+    VALUATION_REPORT = "valuation_report"
+    RECOMMENDATION_LETTER = "recommendation_letter"
     SUPPORTING_DOCUMENT = "supporting_document"
 
 

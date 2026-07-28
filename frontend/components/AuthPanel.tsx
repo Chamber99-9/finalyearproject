@@ -97,7 +97,14 @@ export function AuthPanel({ mode }: AuthPanelProps) {
         return;
       }
 
-      router.push(getDashboardPath(user.role));
+      // A brand-new registration goes straight into the loan application flow
+      // (which is only reachable once authenticated). Sign-ins go to the
+      // role-based dashboard.
+      if (isRegister && user.role === "customer") {
+        router.push("/applications/new");
+      } else {
+        router.push(getDashboardPath(user.role));
+      }
       router.refresh();
     } catch {
       setError("Could not reach the authentication service. Please try again.");

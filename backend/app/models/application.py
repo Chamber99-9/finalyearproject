@@ -24,9 +24,12 @@ class ApplicationStatus(StrEnum):
 
 class LoanType(StrEnum):
     PERSONAL = "personal"
-    BUSINESS = "business"
-    EDUCATION = "education"
+    INSTANT = "instant"
     HOME = "home"
+    AUTO = "auto"
+    EDUCATION = "education"
+    LOAN_AGAINST_SHARES = "loan_against_shares"
+    BUSINESS = "business"
     VEHICLE = "vehicle"
     AGRICULTURE = "agriculture"
     OTHER = "other"
@@ -147,6 +150,10 @@ def create_application_document(
         "dependents": payload.dependents,
         "savings_buffer": payload.savings_buffer.value,
         "repayment_history": payload.repayment_history.value,
+        "pan_number": getattr(payload, "pan_number", None),
+        "collateral_type": getattr(payload, "collateral_type", None),
+        "collateral_value": getattr(payload, "collateral_value", None),
+        "collateral_description": getattr(payload, "collateral_description", None),
         "status": ApplicationStatus.DRAFT.value,
         "created_at": now,
         "updated_at": now,

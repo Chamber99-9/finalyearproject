@@ -10,6 +10,7 @@ import {
   formatLabel,
   formatMoney
 } from "@/lib/officer";
+import { CustomerLoans } from "@/components/CustomerLoans";
 
 export function CustomerDashboard() {
   const [applications, setApplications] = useState<LoanApplication[]>([]);
@@ -152,6 +153,10 @@ export function CustomerDashboard() {
         />
         <Metric label="Drafts" loading={isLoading} value={summary.drafts} />
         <Metric label="Pending review" loading={isLoading} value={summary.pending} />
+      </div>
+
+      <div className="mt-6">
+        <CustomerLoans />
       </div>
 
       <div className="table-shell">

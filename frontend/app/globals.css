@@ -6,6 +6,24 @@
   color-scheme: light;
 }
 
+@keyframes sl-fade-in-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes sl-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@keyframes sl-bell {
+  0%, 88%, 100% { transform: rotate(0); }
+  90% { transform: rotate(14deg); }
+  94% { transform: rotate(-12deg); }
+  98% { transform: rotate(6deg); }
+}
+.animate-fade-in-up { animation: sl-fade-in-up 0.6s ease-out both; }
+.animate-float { animation: sl-float 4s ease-in-out infinite; }
+.animate-bell { animation: sl-bell 3s ease-in-out infinite; transform-origin: top center; }
+
 * {
   box-sizing: border-box;
 }

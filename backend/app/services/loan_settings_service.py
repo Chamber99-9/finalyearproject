@@ -79,6 +79,42 @@ async def set_loan_interest_rate(
     return float(interest_rate)
 
 
+BASE_RATE_KEY = "base_lending_rate"
+
+
+async def get_base_lending_rate(database: AsyncIOMotorDatabase) -> float:
+    """Return the bank base lending rate (DB override, else config default)."""
+    document = await database[APP_SETTINGS_COLLECTION].find_one({"key": BASE_RATE_KEY})
+    if document is not None and document.get("value") is not None:
+        try:
+            return float(document["value"])
+        except (TypeError, ValueError):
+            pass
+    return float(get_settings().base_lending_rate)
+
+
+async def set_base_lending_rate(
+    database: AsyncIOMotorDatabase,
+    base_rate: float,
+) -> float:
+    """Persist a new bank base lending rate override."""
+    if base_rate <= 0:
+        raise LoanSettingsError("Base lending rate must be greater than 0.")
+
+    await database[APP_SETTINGS_COLLECTION].update_one(
+        {"key": BASE_RATE_KEY},
+        {
+            "$set": {
+                "key": BASE_RATE_KEY,
+                "value": float(base_rate),
+                "updated_at": datetime.now(UTC),
+            }
+        },
+        upsert=True,
+    )
+    return float(base_rate)
+
+
 async def get_personal_loan_interest_rate(database: AsyncIOMotorDatabase) -> float:
     return await get_loan_interest_rate(database, LoanType.PERSONAL.value)
 

@@ -54,18 +54,37 @@ export function NotificationMenu() {
     }).catch(() => undefined);
   }
 
+  const hasUnread = unreadCount > 0;
+
   return (
     <div className="relative">
       <button
-        className="rounded-md px-3 py-2 text-sm font-medium transition hover:bg-emerald-50 hover:text-emerald-800"
+        aria-label={hasUnread ? `Notifications, ${unreadCount} unread` : "Notifications"}
+        className="relative rounded-full p-2 text-slate-600 transition duration-200 hover:scale-110 hover:bg-emerald-50 hover:text-emerald-800"
         onClick={() => setIsOpen((current) => !current)}
         type="button"
       >
-        Notifications
-        {unreadCount > 0 ? (
-          <span className="ml-2 rounded-full bg-emerald-700 px-2 py-0.5 text-xs font-bold text-white">
-            {unreadCount}
-          </span>
+        <svg
+          className={`h-6 w-6 ${hasUnread ? "animate-bell" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"
+          />
+        </svg>
+        {hasUnread ? (
+          <>
+            <span className="absolute right-1 top-1 h-2.5 w-2.5 animate-ping rounded-full bg-emerald-500" />
+            <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-emerald-600 px-1 text-xs font-bold text-white shadow">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          </>
         ) : null}
       </button>
 

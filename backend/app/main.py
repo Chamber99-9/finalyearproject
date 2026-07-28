@@ -9,12 +9,15 @@ from app.database import close_database_connection
 from app.routes.admin import router as admin_router
 from app.routes.applications import router as applications_router
 from app.routes.auth import router as auth_router
+from app.routes.eligibility import eligibility_router, verification_router
 from app.routes.emi import router as emi_router
 from app.routes.flags import router as flags_router
 from app.routes.health import router as health_router
+from app.routes.loans import router as loans_router
 from app.routes.notifications import router as notifications_router
 from app.routes.ocr import router as ocr_router
 from app.routes.officer import router as officer_router
+from app.routes.rates import router as rates_router
 from app.routes.risk import router as risk_router
 from app.routes.settings import router as settings_router
 
@@ -50,6 +53,10 @@ app.include_router(ocr_router)
 app.include_router(risk_router)
 app.include_router(emi_router)
 app.include_router(settings_router)
+app.include_router(rates_router)
+app.include_router(eligibility_router)
+app.include_router(verification_router)
+app.include_router(loans_router)
 app.include_router(flags_router)
 app.include_router(officer_router)
 app.include_router(admin_router)

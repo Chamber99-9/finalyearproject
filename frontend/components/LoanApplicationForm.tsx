@@ -4,12 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { EMICard, EMISummary } from "@/components/EMICard";
+import { EMIBreakdown } from "@/components/EMIBreakdown";
+import { Eligibility, LoanTypeInfo, PanCheck } from "@/lib/loans";
+import { formatMoney } from "@/lib/officer";
 
 type Step = "loan" | "documents" | "verify" | "details" | "done";
 type DocumentType =
   | "citizenship_document"
   | "salary_slip"
   | "bank_statement"
+  | "valuation_report"
+  | "recommendation_letter"
   | "supporting_document";
 
 type ApplicationResponse = {
@@ -69,6 +74,8 @@ const documentOptions: Array<{ value: DocumentType; label: string; required: boo
   { value: "citizenship_document", label: "Citizenship document", required: true },
   { value: "salary_slip", label: "Salary slip", required: true },
   { value: "bank_statement", label: "Bank statement", required: true },
+  { value: "valuation_report", label: "Collateral valuation report", required: false },
+  { value: "recommendation_letter", label: "Recommendation letter", required: false },
   { value: "supporting_document", label: "Optional supporting document", required: false }
 ];
 
@@ -113,7 +120,10 @@ const initialForm = {
   loan_purpose: "",
   dependents: "0",
   savings_buffer: "average",
-  repayment_history: "no_previous_default"
+  repayment_history: "no_previous_default",
+  pan_number: "",
+  collateral_type: "",
+  collateral_value: ""
 };
 
 /** Convert a tenure + unit into a number of monthly installments (N). */
@@ -133,12 +143,16 @@ const emptyDocumentFiles: Record<DocumentType, File | null> = {
   citizenship_document: null,
   salary_slip: null,
   bank_statement: null,
+  valuation_report: null,
+  recommendation_letter: null,
   supporting_document: null
 };
 const emptyInputVersions: Record<DocumentType, number> = {
   citizenship_document: 0,
   salary_slip: 0,
   bank_statement: 0,
+  valuation_report: 0,
+  recommendation_letter: 0,
   supporting_document: 0
 };
 
@@ -160,6 +174,87 @@ export function LoanApplicationForm() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [emiSummary, setEmiSummary] = useState<EMISummary | null>(null);
+  const [loanTypes, setLoanTypes] = useState<LoanTypeInfo[]>([]);
+  const [eligibility, setEligibility] = useState<Eligibility | null>(null);
+  const [panResult, setPanResult] = useState<PanCheck | null>(null);
+  const [panChecking, setPanChecking] = useState(false);
+
+  const selectedLoanType = loanTypes.find((type) => type.loan_type === form.loan_type) ?? null;
+
+  // Live salary-based cap + collateral requirement for the current selection.
+  useEffect(() => {
+    const amount = Number(form.requested_loan_amount);
+    const income = Number(form.monthly_income);
+    if (!(income > 0)) {
+      setEligibility(null);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const response = await fetch("/api/loan-eligibility/check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            loan_type: form.loan_type,
+            loan_amount: amount > 0 ? amount : 0,
+            monthly_income: income
+          }),
+          signal: controller.signal
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) setEligibility(payload.eligibility ?? null);
+      } catch {
+        // Non-fatal.
+      }
+    }, 300);
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [form.loan_type, form.requested_loan_amount, form.monthly_income]);
+
+  async function verifyPan() {
+    setPanResult(null);
+    if (!/^\d{9}$/.test(form.pan_number.trim())) {
+      setPanResult({
+        pan_number: form.pan_number,
+        valid_format: false,
+        tax_registered: false,
+        reason: "PAN must be exactly 9 digits."
+      });
+      return;
+    }
+    setPanChecking(true);
+    try {
+      const response = await fetch("/api/verification/pan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pan_number: form.pan_number.trim() })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok) setPanResult(payload.pan ?? null);
+    } catch {
+      // Non-fatal.
+    } finally {
+      setPanChecking(false);
+    }
+  }
+
+  useEffect(() => {
+    async function loadLoanTypes() {
+      try {
+        const response = await fetch("/api/loan-rates/types");
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          setLoanTypes(payload.loan_types ?? []);
+        }
+      } catch {
+        // Non-fatal: the picker falls back to a plain personal-loan option.
+      }
+    }
+    loadLoanTypes();
+  }, []);
 
   const activeOcr = ocrResults.find((result) => result.id === activeOcrId) ?? null;
   const activeDocument = activeOcr
@@ -243,7 +338,8 @@ export function LoanApplicationForm() {
           body: JSON.stringify({
             loan_amount: loanAmount,
             tenure: Number(form.loan_tenure),
-            tenure_unit: form.tenure_unit
+            tenure_unit: form.tenure_unit,
+            loan_type: form.loan_type
           }),
           signal: controller.signal
         });
@@ -292,6 +388,7 @@ export function LoanApplicationForm() {
     form.requested_loan_amount,
     form.loan_tenure,
     form.tenure_unit,
+    form.loan_type,
     form.monthly_income,
     form.existing_monthly_debt
   ]);
@@ -670,6 +767,17 @@ function mergeCorrectedDataIntoForm(data: Record<string, string>) {
     if (!Number.isInteger(dependents) || dependents < 0) {
       return "Dependents must be a whole number.";
     }
+    if (form.pan_number.trim() && !/^\d{9}$/.test(form.pan_number.trim())) {
+      return "PAN number must be exactly 9 digits.";
+    }
+    if (eligibility && !eligibility.within_cap) {
+      return `Requested amount exceeds your eligibility cap of ${formatMoney(
+        eligibility.max_amount
+      )}.`;
+    }
+    if (eligibility?.requires_collateral && Number(form.collateral_value) <= 0) {
+      return "This loan requires collateral. Enter the collateral value.";
+    }
     return "";
   }
 
@@ -738,28 +846,51 @@ function mergeCorrectedDataIntoForm(data: Record<string, string>) {
       {step === "loan" ? (
         <section className="grid gap-5">
           <div>
-            <h2 className="text-xl font-semibold text-slate-950">Choose loan type</h2>
+            <h2 className="text-xl font-semibold text-slate-950">Choose your loan scheme</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Sajilo Loan currently uses one common document checklist for all loan types.
+              Pick a scheme to see this month&apos;s competitive rate. Your exact rate
+              depends on the loan type and tenure you choose next.
             </p>
           </div>
-          <label className="block max-w-md">
-            <span className="text-sm font-medium text-slate-700">Loan type</span>
-            <select
-              className="mt-2 w-full px-3 py-2.5"
-              onChange={(event) => updateField("loan_type", event.target.value)}
-              value={form.loan_type}
-            >
-              <option value="personal">Personal loan</option>
-            </select>
-          </label>
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {loanTypes.map((type) => {
+              const active = form.loan_type === type.loan_type;
+              return (
+                <button
+                  className={`rounded-lg border p-4 text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+                    active
+                      ? "border-emerald-600 bg-emerald-50 ring-2 ring-emerald-600/20"
+                      : "border-slate-200 bg-white hover:border-emerald-400"
+                  }`}
+                  key={type.loan_type}
+                  onClick={() => updateField("loan_type", type.loan_type)}
+                  type="button"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-slate-950">{type.label}</span>
+                    <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                      from {type.indicative_rate}%
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-slate-600">
+                    Up to {type.max_tenure_years} years.{" "}
+                    {type.requires_collateral_above == null
+                      ? "No collateral required."
+                      : `Collateral required above ${formatMoney(type.requires_collateral_above)}.`}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+
           <button
             className="btn-primary w-fit px-5 py-3"
             disabled={isLoading}
             onClick={startDraft}
             type="button"
           >
-            Start and upload documents
+            Continue with {selectedLoanType?.label ?? "this scheme"}
           </button>
         </section>
       ) : null}
@@ -995,12 +1126,16 @@ function mergeCorrectedDataIntoForm(data: Record<string, string>) {
 
       {step === "details" ? (
         <FinalDetailsForm
+          eligibility={eligibility}
           emiSummary={emiSummary}
           form={form}
           isLoading={isLoading}
           onChange={updateField}
           onSave={() => saveFinalDetails({ submit: false })}
           onSubmit={() => saveFinalDetails({ submit: true })}
+          onVerifyPan={verifyPan}
+          panChecking={panChecking}
+          panResult={panResult}
         />
       ) : null}
 
@@ -1018,19 +1153,27 @@ function mergeCorrectedDataIntoForm(data: Record<string, string>) {
 }
 
 function FinalDetailsForm({
+  eligibility,
   emiSummary,
   form,
   isLoading,
   onChange,
   onSave,
-  onSubmit
+  onSubmit,
+  onVerifyPan,
+  panChecking,
+  panResult
 }: {
+  eligibility: Eligibility | null;
   emiSummary: EMISummary | null;
   form: FormState;
   isLoading: boolean;
   onChange: (name: FormField, value: string) => void;
   onSave: () => void;
   onSubmit: () => void;
+  onVerifyPan: () => void;
+  panChecking: boolean;
+  panResult: PanCheck | null;
 }) {
   return (
     <section className="grid gap-5">
@@ -1040,6 +1183,28 @@ function FinalDetailsForm({
           OCR-filled values can be edited before you submit.
         </p>
       </div>
+
+      {eligibility ? (
+        <div
+          className={`rounded-lg border px-4 py-3 text-sm ${
+            eligibility.within_cap
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              : "border-amber-200 bg-amber-50 text-amber-900"
+          }`}
+        >
+          <p className="font-semibold">
+            Eligible up to {formatMoney(eligibility.max_amount)} for this scheme.
+          </p>
+          <p className="mt-1">
+            {eligibility.within_cap
+              ? "Your requested amount is within your eligibility."
+              : "Your requested amount is above your eligibility cap — lower it to proceed."}
+            {eligibility.requires_collateral
+              ? " Collateral is required for this loan (above 2 lakh)."
+              : " No collateral required for this loan."}
+          </p>
+        </div>
+      ) : null}
       <div className="grid gap-5 lg:grid-cols-2">
         <TextField label="Full name" name="full_name" onChange={onChange} value={form.full_name} />
         <TextField
@@ -1114,6 +1279,68 @@ function FinalDetailsForm({
           value={form.repayment_history}
         />
       </div>
+      <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+        <span className="text-sm font-semibold text-slate-800">Identity verification</span>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <label className="block flex-1">
+            <span className="text-sm font-medium text-slate-700">PAN number (9 digits)</span>
+            <input
+              className="mt-2 w-full px-3 py-2.5"
+              inputMode="numeric"
+              maxLength={9}
+              onChange={(event) => onChange("pan_number", event.target.value)}
+              placeholder="123456789"
+              value={form.pan_number}
+            />
+          </label>
+          <button
+            className="btn-secondary px-4 py-2.5"
+            disabled={panChecking}
+            onClick={onVerifyPan}
+            type="button"
+          >
+            {panChecking ? "Checking..." : "Verify PAN"}
+          </button>
+        </div>
+        {panResult ? (
+          <p
+            className={`text-sm ${
+              panResult.valid_format && panResult.tax_registered
+                ? "text-emerald-700"
+                : "text-amber-700"
+            }`}
+          >
+            {panResult.reason}
+          </p>
+        ) : null}
+      </div>
+
+      {eligibility?.requires_collateral ? (
+        <div className="grid gap-4 rounded-lg border border-amber-200 bg-amber-50 p-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <span className="text-sm font-semibold text-amber-900">
+              Collateral required (loan above 2 lakh)
+            </span>
+            <p className="mt-1 text-xs text-amber-800">
+              Pledge collateral and upload a valuation report for officer review.
+            </p>
+          </div>
+          <TextField
+            label="Collateral type"
+            name="collateral_type"
+            onChange={onChange}
+            value={form.collateral_type}
+          />
+          <TextField
+            label="Collateral value"
+            name="collateral_value"
+            onChange={onChange}
+            type="number"
+            value={form.collateral_value}
+          />
+        </div>
+      ) : null}
+
       <label className="block">
         <span className="text-sm font-medium text-slate-700">Loan purpose</span>
         <textarea
@@ -1127,6 +1354,18 @@ function FinalDetailsForm({
         subtitle="Auto-calculated from your loan amount and tenure using the bank's interest rate."
         summary={emiSummary ?? {}}
       />
+      {emiSummary &&
+      typeof emiSummary.monthly_emi === "number" &&
+      typeof emiSummary.interest_rate === "number" ? (
+        <EMIBreakdown
+          annualRate={emiSummary.interest_rate}
+          loanAmount={Number(form.requested_loan_amount)}
+          monthlyEmi={emiSummary.monthly_emi}
+          months={tenureToMonths(form.loan_tenure, form.tenure_unit)}
+          totalInterest={emiSummary.total_interest ?? 0}
+          totalPayment={emiSummary.total_payment ?? 0}
+        />
+      ) : null}
       <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
         <button
           className="btn-secondary px-5 py-3"
@@ -1318,7 +1557,10 @@ function applicationPayload(form: FormState) {
     loan_purpose: form.loan_purpose.trim(),
     dependents: Number(form.dependents),
     savings_buffer: form.savings_buffer,
-    repayment_history: form.repayment_history
+    repayment_history: form.repayment_history,
+    pan_number: form.pan_number.trim() ? form.pan_number.trim() : null,
+    collateral_type: form.collateral_type.trim() ? form.collateral_type.trim() : null,
+    collateral_value: form.collateral_value ? Number(form.collateral_value) : null
   };
 }
 
@@ -1333,6 +1575,8 @@ function defaultCorrectedData(documentType: DocumentType, result: OCRResult) {
     citizenship_document: ["full_name", "citizenship_number", "address"],
     salary_slip: ["employee_name", "monthly_income", "employer_name"],
     bank_statement: ["account_holder_name", "bank_name", "account_number"],
+    valuation_report: ["document_date"],
+    recommendation_letter: ["document_date"],
     supporting_document: ["document_date"]
   };
   const suggested = extractSuggestedData(documentType, result.extracted_text);

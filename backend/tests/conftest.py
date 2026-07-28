@@ -205,6 +205,9 @@ def valid_application_payload() -> dict[str, Any]:
         "dependents": 1,
         "savings_buffer": "good",
         "repayment_history": "no_previous_default",
+        "pan_number": "123123123",
+        "collateral_type": "property",
+        "collateral_value": 2500000,
     }
 
 
@@ -259,6 +262,9 @@ def seed_application(
         "dependents": 1,
         "savings_buffer": "good",
         "repayment_history": "no_previous_default",
+        "pan_number": "123123123",
+        "collateral_type": "property",
+        "collateral_value": 2500000,
         "status": "submitted",
         "created_at": now,
         "updated_at": now,

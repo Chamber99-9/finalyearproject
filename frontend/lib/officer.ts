@@ -29,6 +29,11 @@ export type LoanApplication = {
   total_payment?: number | null;
   emi_dti_ratio?: number | null;
   affordability?: string | null;
+  pan_number?: string | null;
+  collateral_type?: string | null;
+  collateral_value?: number | null;
+  collateral_description?: string | null;
+  verification?: Record<string, boolean> | null;
   loan_purpose?: string | null;
   dependents?: number | null;
   savings_buffer?: string | null;

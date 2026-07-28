@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.models.application import LoanType
 from app.services.emi_service import TenureUnit
 
 
@@ -31,7 +32,8 @@ class EMIResponse(BaseModel):
 
 
 class EMIPreviewRequest(BaseModel):
-    """Customer-facing preview: only amount + tenure. The rate is bank-defined.
+    """Customer-facing preview: amount + tenure + loan type. The rate is derived
+    from the bank engine (base + type spread + tenure adjustment).
 
     Validation: loan_amount > 0, tenure > 0.
     """
@@ -39,6 +41,7 @@ class EMIPreviewRequest(BaseModel):
     loan_amount: float = Field(..., gt=0)
     tenure: int = Field(..., gt=0)
     tenure_unit: TenureUnit = TenureUnit.YEARS
+    loan_type: LoanType = LoanType.PERSONAL
 
     model_config = ConfigDict(use_enum_values=True)
 

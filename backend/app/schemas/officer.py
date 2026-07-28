@@ -47,6 +47,19 @@ class InterestRateUpdateRequest(BaseModel):
     interest_rate: float = Field(..., gt=0)
 
 
+class OfficerVerificationUpdate(BaseModel):
+    """Officer sign-off on document/identity checks for an application."""
+
+    pan_verified: bool | None = None
+    income_verified: bool | None = None
+    salary_statement_verified: bool | None = None
+    stamp_verified: bool | None = None
+    signature_verified: bool | None = None
+    collateral_verified: bool | None = None
+    valuation_report_verified: bool | None = None
+    recommendation_letter_verified: bool | None = None
+
+
 class CounterOfferCreate(BaseModel):
     offered_loan_amount: float = Field(..., gt=0)
     message: str = Field(..., min_length=3, max_length=500)

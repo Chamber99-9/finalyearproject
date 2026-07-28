@@ -11,6 +11,7 @@ from app.schemas.officer import (
     ApplicationStatusUpdateRequest,
     CounterOfferCreate,
     InterestRateUpdateRequest,
+    OfficerVerificationUpdate,
 )
 from app.services.application_service import (
     get_application_by_id,
@@ -36,6 +37,7 @@ from app.services.notification_service import (
     NotificationStorageError,
     create_notification,
 )
+from app.services.loan_account_service import create_loan_account_for_application
 from app.services.risk_service import (
     get_latest_risk_score_for_application,
     serialize_risk_score,
@@ -125,6 +127,10 @@ async def update_officer_application_status(
     )
     if updated_application is None:
         raise OfficerApplicationNotFoundError
+
+    # On approval, open a loan account so the repayment lifecycle can begin.
+    if payload.status == ApplicationStatus.APPROVED:
+        await create_loan_account_for_application(database, updated_application)
 
     try:
         await create_audit_log(
@@ -273,6 +279,49 @@ async def update_application_interest_rate(
                 "monthly_emi": emi_fields.get("monthly_emi"),
                 "affordability": emi_fields.get("affordability"),
             },
+        )
+    except AuditLogStorageError as error:
+        raise OfficerWorkflowStorageError from error
+
+    return serialize_application(updated_application)
+
+
+async def update_verification_checklist(
+    *,
+    database: AsyncIOMotorDatabase,
+    application_id: str,
+    payload: OfficerVerificationUpdate,
+    current_user: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge officer verification sign-offs into the application's record."""
+    application = await get_application_by_id(database, application_id)
+    if application is None:
+        raise OfficerApplicationNotFoundError
+
+    flags = {
+        key: value
+        for key, value in payload.model_dump(exclude_unset=True).items()
+        if value is not None
+    }
+    verification = dict(application.get("verification") or {})
+    verification.update(flags)
+
+    updated_application = await database["loan_applications"].find_one_and_update(
+        {"_id": application["_id"]},
+        {"$set": {"verification": verification, "updated_at": datetime.now(UTC)}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if updated_application is None:
+        raise OfficerApplicationNotFoundError
+
+    try:
+        await create_audit_log(
+            database=database,
+            user_id=get_actor_id(current_user),
+            action="verification_checklist_updated",
+            entity_type="loan_application",
+            entity_id=application_id,
+            details={"verification": verification},
         )
     except AuditLogStorageError as error:
         raise OfficerWorkflowStorageError from error

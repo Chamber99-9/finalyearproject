@@ -132,6 +132,15 @@ async def login_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    if user.get("is_blacklisted"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "You are blacklisted or your account has a problem right now. "
+                "Please contact the bank."
+            ),
+        )
+
     public_user = serialize_user(user)
     try:
         await create_audit_log(

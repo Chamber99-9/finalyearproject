@@ -93,6 +93,29 @@ export function OfficerApplicationReview({ applicationId }: OfficerApplicationRe
     }
   }
 
+  async function toggleVerification(key: string, value: boolean) {
+    setError("");
+    setSuccess("");
+    try {
+      const response = await fetch(
+        `/api/officer/applications/${applicationId}/verification`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [key]: value })
+        }
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(payload.error ?? "Could not save verification.");
+        return;
+      }
+      await loadDetail();
+    } catch {
+      setError("Could not reach the verification service.");
+    }
+  }
+
   async function requestDocuments() {
     setIsSaving(true);
     setError("");
@@ -290,6 +313,15 @@ export function OfficerApplicationReview({ applicationId }: OfficerApplicationRe
               ],
               ["Monthly income", formatMoney(application.monthly_income)],
               ["Existing monthly debt", formatMoney(application.existing_monthly_debt)],
+              ["PAN number", application.pan_number || "N/A"],
+              [
+                "Collateral",
+                application.collateral_value
+                  ? `${formatMoney(application.collateral_value)}${
+                      application.collateral_type ? ` (${application.collateral_type})` : ""
+                    }`
+                  : "None"
+              ],
               ["Loan purpose", application.loan_purpose || "N/A"]
             ]}
           />
@@ -313,6 +345,10 @@ export function OfficerApplicationReview({ applicationId }: OfficerApplicationRe
 
         <div className="grid content-start gap-6">
           <RiskCard riskScore={riskScore} />
+          <VerificationChecklist
+            verification={application.verification ?? {}}
+            onToggle={toggleVerification}
+          />
           <FlagsCard flags={flags} />
           <CounterOfferCard
             amount={offerAmount}
@@ -606,6 +642,47 @@ function FlagsCard({ flags }: { flags: OfficerApplicationDetail["suspicious_flag
           No suspicious flag result available.
         </p>
       )}
+    </section>
+  );
+}
+
+const verificationItems: Array<{ key: string; label: string }> = [
+  { key: "pan_verified", label: "PAN verified" },
+  { key: "income_verified", label: "Income verified" },
+  { key: "salary_statement_verified", label: "Salary statement valid" },
+  { key: "stamp_verified", label: "Stamp verified" },
+  { key: "signature_verified", label: "Signature verified" },
+  { key: "collateral_verified", label: "Collateral verified" },
+  { key: "valuation_report_verified", label: "Valuation report verified" },
+  { key: "recommendation_letter_verified", label: "Recommendation letter verified" }
+];
+
+function VerificationChecklist({
+  verification,
+  onToggle
+}: {
+  verification: Record<string, boolean>;
+  onToggle: (key: string, value: boolean) => void;
+}) {
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-lg font-semibold text-slate-950">Verification checklist</h2>
+      <p className="mt-1 text-sm text-slate-600">Confirm each check during review.</p>
+      <div className="mt-4 grid gap-2">
+        {verificationItems.map((item) => (
+          <label
+            className="flex items-center gap-3 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700"
+            key={item.key}
+          >
+            <input
+              checked={Boolean(verification[item.key])}
+              onChange={(event) => onToggle(item.key, event.target.checked)}
+              type="checkbox"
+            />
+            {item.label}
+          </label>
+        ))}
+      </div>
     </section>
   );
 }

@@ -17,7 +17,9 @@ from app.schemas.application import (
     ApplicationDraftCreateRequest,
     ApplicationUpdateRequest,
 )
-from app.services.loan_settings_service import get_loan_interest_rate
+from app.services.loan_rate_service import effective_rate_value
+from app.services.loan_eligibility_service import max_loan_amount, requires_collateral
+from app.services.loan_account_service import create_loan_account_for_application
 
 APPLICATIONS_COLLECTION = "loan_applications"
 
@@ -32,6 +34,18 @@ class ApplicationStatusError(Exception):
 
 class IncompleteApplicationError(Exception):
     pass
+
+
+class LoanAmountExceedsCapError(Exception):
+    """Requested amount exceeds the salary-based cap for the loan type."""
+
+    def __init__(self, max_amount: float) -> None:
+        super().__init__("Requested amount exceeds the salary-based cap.")
+        self.max_amount = max_amount
+
+
+class CollateralRequiredError(Exception):
+    """A loan above the threshold (non-instant) needs collateral pledged."""
 
 
 def serialize_application(document: dict[str, Any]) -> dict[str, Any]:
@@ -94,8 +108,13 @@ async def create_draft_application(
     if existing_draft is not None:
         return existing_draft
 
-    # Resolve the bank-defined rate for this loan type and freeze it on the doc.
-    interest_rate_used = await get_loan_interest_rate(database, payload.loan_type.value)
+    # Resolve the effective rate (base + type spread + tenure) and freeze it.
+    interest_rate_used = await effective_rate_value(
+        database,
+        loan_type=payload.loan_type.value,
+        tenure=payload.loan_duration_months,
+        tenure_unit="months",
+    )
     document = create_application_document(
         applicant_id=applicant_id,
         payload=payload,
@@ -236,12 +255,20 @@ async def update_owned_application(
     # change to the bank default never alters submitted applications.
     effective = {**application, **updates}
     loan_type = str(effective.get("loan_type") or "personal")
-    interest_rate_used = await get_loan_interest_rate(database, loan_type)
+    tenure_months = effective.get("loan_duration_months")
+    interest_rate_used = None
+    if tenure_months not in (None, ""):
+        interest_rate_used = await effective_rate_value(
+            database,
+            loan_type=loan_type,
+            tenure=int(tenure_months),
+            tenure_unit="months",
+        )
     updates.update(
         compute_emi_fields(
             requested_loan_amount=effective.get("requested_loan_amount"),
             interest_rate_used=interest_rate_used,
-            loan_duration_months=effective.get("loan_duration_months"),
+            loan_duration_months=tenure_months,
             existing_monthly_debt=effective.get("existing_monthly_debt"),
             monthly_income=effective.get("monthly_income"),
         )
@@ -276,6 +303,18 @@ async def submit_owned_application(
         raise ApplicationStatusError
 
     _complete_application_payload(application)
+
+    # Salary-based cap + collateral rules (Phase 2).
+    loan_type = str(application.get("loan_type") or "personal")
+    amount = float(application.get("requested_loan_amount") or 0)
+    income = float(application.get("monthly_income") or 0)
+    cap = max_loan_amount(loan_type, income)
+    if cap <= 0 or amount > cap:
+        raise LoanAmountExceedsCapError(cap)
+    if requires_collateral(loan_type, amount):
+        collateral_value = application.get("collateral_value")
+        if not collateral_value or float(collateral_value) <= 0:
+            raise CollateralRequiredError
 
     updated_application = await database[APPLICATIONS_COLLECTION].find_one_and_update(
         {
@@ -332,4 +371,9 @@ async def respond_to_counter_offer(
 
     if updated_application is None:
         raise ApplicationNotFoundError
+
+    # Accepting a counter offer approves the loan — open its loan account.
+    if accepted:
+        await create_loan_account_for_application(database, updated_application)
+
     return updated_application

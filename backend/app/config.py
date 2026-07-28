@@ -18,6 +18,20 @@ class Settings(BaseSettings):
     # the seeded fallback; the live value can be overridden at runtime and is
     # stored in the app_settings collection (see loan_settings_service).
     personal_loan_interest_rate: float = 11.0
+    # Base lending rate (percent). Effective rate = base + loan-type spread +
+    # tenure adjustment (see loan_rate_service). Admin-overridable at runtime.
+    base_lending_rate: float = 8.0
+    # Loan repayment: EMI is due on this day each month; a user is blacklisted
+    # after this many consecutive missed installments.
+    emi_due_day: int = 10
+    blacklist_overdue_months: int = 3
+    # Email alerts. When smtp_host is set, real emails are sent; otherwise the
+    # message is stored + logged (still demonstrable, no credentials needed).
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    email_from: str = "no-reply@sajiloloan.example"
     upload_dir: str = "uploads"
     max_upload_bytes: int = 10 * 1024 * 1024
     cors_allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"

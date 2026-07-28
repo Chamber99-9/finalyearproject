@@ -5,11 +5,7 @@ import { NotificationMenu } from "./NotificationMenu";
 
 const navItems = [
   { href: "/", label: "Home" },
-  { href: "/#process", label: "Process" },
-  { href: "/#features", label: "Features" },
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/login", label: "Login" },
-  { href: "/register", label: "Apply" }
+  { href: "/login", label: "Login" }
 ];
 
 type AppShellProps = {

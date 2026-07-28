@@ -14,6 +14,7 @@ from app.schemas.officer import (
     ApplicationStatusUpdateRequest,
     CounterOfferCreate,
     OfficerApplicationDetailResponse,
+    OfficerVerificationUpdate,
 )
 from app.services.document_request_service import serialize_document_request
 from app.services.document_service import get_document_by_id
@@ -26,6 +27,7 @@ from app.services.officer_service import (
     list_review_applications,
     request_additional_documents,
     update_officer_application_status,
+    update_verification_checklist,
 )
 
 router = APIRouter(prefix="/officer", tags=["officer"])
@@ -143,6 +145,36 @@ async def request_officer_application_document(
         ) from error
 
     return serialize_document_request(document_request)
+
+
+@router.put(
+    "/applications/{application_id}/verification",
+    response_model=ApplicationResponse,
+)
+async def update_application_verification(
+    application_id: str,
+    payload: OfficerVerificationUpdate,
+    current_user: Annotated[dict, Depends(require_officer)],
+    database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+) -> dict:
+    """Record officer sign-off on PAN / stamp / signature / collateral checks."""
+    try:
+        return await update_verification_checklist(
+            database=database,
+            application_id=application_id,
+            payload=payload,
+            current_user=current_user,
+        )
+    except OfficerApplicationNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Application not found.",
+        ) from error
+    except OfficerWorkflowStorageError as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not save verification checklist.",
+        ) from error
 
 
 @router.post(
