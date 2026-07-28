@@ -30,6 +30,30 @@ class EMIResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class EMIPreviewRequest(BaseModel):
+    """Customer-facing preview: only amount + tenure. The rate is bank-defined.
+
+    Validation: loan_amount > 0, tenure > 0.
+    """
+
+    loan_amount: float = Field(..., gt=0)
+    tenure: int = Field(..., gt=0)
+    tenure_unit: TenureUnit = TenureUnit.YEARS
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class EMIPreviewResponse(BaseModel):
+    """EMI preview including the bank rate that was applied."""
+
+    interest_rate_used: float
+    monthly_emi: float
+    total_interest: float
+    total_payment: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class AmortizationEntry(BaseModel):
     """A single installment row in the amortization schedule."""
 

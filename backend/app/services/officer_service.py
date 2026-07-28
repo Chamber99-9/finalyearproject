@@ -4,12 +4,13 @@ from typing import Any
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ReturnDocument
 
-from app.models.application import ApplicationStatus
+from app.models.application import ApplicationStatus, compute_emi_fields
 from app.models.user import UserRole
 from app.schemas.officer import (
     AdditionalDocumentRequestCreate,
     ApplicationStatusUpdateRequest,
     CounterOfferCreate,
+    InterestRateUpdateRequest,
 )
 from app.services.application_service import (
     get_application_by_id,
@@ -51,6 +52,10 @@ class OfficerWorkflowStorageError(Exception):
 
 class CounterOfferValidationError(Exception):
     pass
+
+
+class ApplicationIncompleteForRateError(Exception):
+    """Raised when an application lacks amount/tenure needed to recompute EMI."""
 
 
 async def list_review_applications(
@@ -211,6 +216,65 @@ async def create_counter_offer(
             ),
         )
     except (AuditLogStorageError, NotificationStorageError) as error:
+        raise OfficerWorkflowStorageError from error
+
+    return serialize_application(updated_application)
+
+
+async def update_application_interest_rate(
+    *,
+    database: AsyncIOMotorDatabase,
+    application_id: str,
+    payload: InterestRateUpdateRequest,
+    current_user: dict[str, Any],
+) -> dict[str, Any]:
+    """Override the interest rate on an application and recalculate its EMI.
+
+    Admin-only per the project settings. Recomputes monthly EMI, total interest,
+    total repayment and the affordability recommendation, and stores the new
+    ``interest_rate_used`` on the application.
+    """
+    application = await get_application_by_id(database, application_id)
+    if application is None:
+        raise OfficerApplicationNotFoundError
+
+    emi_fields = compute_emi_fields(
+        requested_loan_amount=application.get("requested_loan_amount"),
+        interest_rate_used=payload.interest_rate,
+        loan_duration_months=application.get("loan_duration_months"),
+        existing_monthly_debt=application.get("existing_monthly_debt"),
+        monthly_income=application.get("monthly_income"),
+    )
+    if not emi_fields:
+        raise ApplicationIncompleteForRateError
+
+    actor_id = get_actor_id(current_user)
+    previous_rate = application.get("interest_rate_used")
+    updates = {**emi_fields, "updated_at": datetime.now(UTC)}
+    updated_application = await database["loan_applications"].find_one_and_update(
+        {"_id": application["_id"]},
+        {"$set": updates},
+        return_document=ReturnDocument.AFTER,
+    )
+    if updated_application is None:
+        raise OfficerApplicationNotFoundError
+
+    try:
+        await create_audit_log(
+            database=database,
+            user_id=actor_id,
+            action="application_interest_rate_updated",
+            entity_type="loan_application",
+            entity_id=application_id,
+            details={
+                "actor_role": UserRole.ADMIN.value,
+                "previous_interest_rate": previous_rate,
+                "new_interest_rate": payload.interest_rate,
+                "monthly_emi": emi_fields.get("monthly_emi"),
+                "affordability": emi_fields.get("affordability"),
+            },
+        )
+    except AuditLogStorageError as error:
         raise OfficerWorkflowStorageError from error
 
     return serialize_application(updated_application)

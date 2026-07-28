@@ -56,26 +56,29 @@ class RepaymentHistory(StrEnum):
 def compute_emi_fields(
     *,
     requested_loan_amount: Any,
-    annual_interest_rate: Any,
+    interest_rate_used: Any,
     loan_duration_months: Any,
     existing_monthly_debt: Any = None,
     monthly_income: Any = None,
 ) -> dict[str, Any]:
     """Compute EMI + affordability fields for a loan application document.
 
-    ``loan_duration_months`` is treated as the canonical installment count (N).
+    ``interest_rate_used`` is the bank-defined rate applied to this application
+    (never entered by the customer); it is stored on the document so a later
+    change to the bank default never alters existing applications.
+    ``loan_duration_months`` is the canonical installment count (N).
+
     Returns ``{}`` when the required inputs are missing or invalid, so callers
     can safely skip EMI updates for still-incomplete drafts instead of failing.
-
     When income and existing debt are also available, the EMI-inclusive
     debt-to-income ratio and affordability recommendation are added too:
 
-        monthly_emi, total_interest, total_payment,
+        interest_rate_used, monthly_emi, total_interest, total_payment,
         emi_dti_ratio, affordability
     """
     if (
         requested_loan_amount in (None, "")
-        or annual_interest_rate in (None, "")
+        or interest_rate_used in (None, "")
         or loan_duration_months in (None, "")
     ):
         return {}
@@ -83,7 +86,7 @@ def compute_emi_fields(
     try:
         emi = calculate_emi(
             loan_amount=float(requested_loan_amount),
-            annual_interest_rate=float(annual_interest_rate),
+            annual_interest_rate=float(interest_rate_used),
             tenure=int(loan_duration_months),
             tenure_unit=TenureUnit.MONTHS,
         )
@@ -91,6 +94,7 @@ def compute_emi_fields(
         return {}
 
     fields: dict[str, Any] = {
+        "interest_rate_used": float(interest_rate_used),
         "monthly_emi": emi["monthly_emi"],
         "total_interest": emi["total_interest"],
         "total_payment": emi["total_payment"],
@@ -115,7 +119,13 @@ def create_application_document(
     *,
     applicant_id: str,
     payload: Any,
+    interest_rate_used: float,
 ) -> dict[str, Any]:
+    """Build a loan application document.
+
+    ``interest_rate_used`` is the bank-defined rate resolved by the caller (from
+    loan_settings_service) — the customer never supplies it.
+    """
     now = datetime.now(UTC)
     document = {
         "applicant_id": applicant_id,
@@ -129,8 +139,8 @@ def create_application_document(
         "existing_monthly_debt": payload.existing_monthly_debt,
         "requested_loan_amount": payload.requested_loan_amount,
         "loan_duration_months": payload.loan_duration_months,
-        # EMI inputs collected during the loan application (requirement #2).
-        "annual_interest_rate": payload.annual_interest_rate,
+        # Tenure the customer entered. The interest rate is bank-defined and is
+        # stored (frozen) via compute_emi_fields below, not entered here.
         "loan_tenure": payload.loan_tenure,
         "tenure_unit": payload.tenure_unit.value,
         "loan_purpose": payload.loan_purpose.strip(),
@@ -141,11 +151,11 @@ def create_application_document(
         "created_at": now,
         "updated_at": now,
     }
-    # Auto-calculate EMI + affordability before saving (requirements #3, #4, #9).
+    # Auto-calculate EMI + affordability from the bank rate before saving.
     document.update(
         compute_emi_fields(
             requested_loan_amount=payload.requested_loan_amount,
-            annual_interest_rate=payload.annual_interest_rate,
+            interest_rate_used=interest_rate_used,
             loan_duration_months=payload.loan_duration_months,
             existing_monthly_debt=payload.existing_monthly_debt,
             monthly_income=payload.monthly_income,

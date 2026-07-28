@@ -38,6 +38,15 @@ class AdditionalDocumentRequestCreate(BaseModel):
         return value or None
 
 
+class InterestRateUpdateRequest(BaseModel):
+    """Override the interest rate applied to a single application (admin only).
+
+    Recalculates EMI, total interest and total repayment when saved.
+    """
+
+    interest_rate: float = Field(..., gt=0)
+
+
 class CounterOfferCreate(BaseModel):
     offered_loan_amount: float = Field(..., gt=0)
     message: str = Field(..., min_length=3, max_length=500)

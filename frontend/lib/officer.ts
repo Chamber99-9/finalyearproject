@@ -20,8 +20,8 @@ export type LoanApplication = {
   existing_monthly_debt?: number | null;
   requested_loan_amount?: number | null;
   loan_duration_months?: number | null;
-  // EMI inputs + auto-calculated outputs (requirements #2, #3, #9).
-  annual_interest_rate?: number | null;
+  // Bank-defined rate applied to this application + auto-calculated EMI outputs.
+  interest_rate_used?: number | null;
   loan_tenure?: number | null;
   tenure_unit?: string | null;
   monthly_emi?: number | null;

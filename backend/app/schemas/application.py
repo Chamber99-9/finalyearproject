@@ -23,8 +23,8 @@ class ApplicationCreateRequest(BaseModel):
     existing_monthly_debt: float = Field(..., ge=0)
     requested_loan_amount: float = Field(..., gt=0)
     loan_duration_months: int = Field(..., ge=1, le=360)
-    # EMI inputs (requirement #2 & validation #14): rate/tenure must be > 0.
-    annual_interest_rate: float = Field(..., gt=0)
+    # Customer enters only the tenure (amount + tenure > 0). The interest rate is
+    # bank-defined and applied by the system — never entered by the customer.
     loan_tenure: int = Field(..., ge=1)
     tenure_unit: TenureUnit = TenureUnit.YEARS
     loan_purpose: str = Field(..., min_length=3, max_length=300)
@@ -74,7 +74,6 @@ class ApplicationUpdateRequest(BaseModel):
     existing_monthly_debt: float | None = Field(None, ge=0)
     requested_loan_amount: float | None = Field(None, gt=0)
     loan_duration_months: int | None = Field(None, ge=1, le=360)
-    annual_interest_rate: float | None = Field(None, gt=0)
     loan_tenure: int | None = Field(None, ge=1)
     tenure_unit: TenureUnit | None = None
     loan_purpose: str | None = Field(None, min_length=3, max_length=300)
@@ -122,8 +121,8 @@ class ApplicationResponse(BaseModel):
     existing_monthly_debt: float | None = None
     requested_loan_amount: float | None = None
     loan_duration_months: int | None = None
-    # EMI inputs + auto-calculated outputs (requirements #3, #4, #9).
-    annual_interest_rate: float | None = None
+    # Bank-defined rate applied to this application + auto-calculated EMI outputs.
+    interest_rate_used: float | None = None
     loan_tenure: int | None = None
     tenure_unit: TenureUnit | None = None
     monthly_emi: float | None = None

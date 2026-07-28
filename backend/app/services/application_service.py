@@ -17,6 +17,7 @@ from app.schemas.application import (
     ApplicationDraftCreateRequest,
     ApplicationUpdateRequest,
 )
+from app.services.loan_settings_service import get_loan_interest_rate
 
 APPLICATIONS_COLLECTION = "loan_applications"
 
@@ -93,7 +94,13 @@ async def create_draft_application(
     if existing_draft is not None:
         return existing_draft
 
-    document = create_application_document(applicant_id=applicant_id, payload=payload)
+    # Resolve the bank-defined rate for this loan type and freeze it on the doc.
+    interest_rate_used = await get_loan_interest_rate(database, payload.loan_type.value)
+    document = create_application_document(
+        applicant_id=applicant_id,
+        payload=payload,
+        interest_rate_used=interest_rate_used,
+    )
     result = await database[APPLICATIONS_COLLECTION].insert_one(document)
     document["_id"] = result.inserted_id
     return document
@@ -223,14 +230,17 @@ async def update_owned_application(
         if value is not None
     }
 
-    # Auto-calculate EMI + affordability before saving (requirements #3, #4, #7, #9).
-    # Merge the incoming updates over the stored document so EMI reflects the
-    # latest amount / rate / tenure / income, even if only some were edited.
+    # Auto-calculate EMI + affordability before saving. The customer never sets
+    # the rate: while the application is still a draft we (re)apply the current
+    # bank-defined rate for this loan type. It freezes at submission, so a later
+    # change to the bank default never alters submitted applications.
     effective = {**application, **updates}
+    loan_type = str(effective.get("loan_type") or "personal")
+    interest_rate_used = await get_loan_interest_rate(database, loan_type)
     updates.update(
         compute_emi_fields(
             requested_loan_amount=effective.get("requested_loan_amount"),
-            annual_interest_rate=effective.get("annual_interest_rate"),
+            interest_rate_used=interest_rate_used,
             loan_duration_months=effective.get("loan_duration_months"),
             existing_monthly_debt=effective.get("existing_monthly_debt"),
             monthly_income=effective.get("monthly_income"),

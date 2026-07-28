@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     jwt_issuer: str = "sajilo-loan-api"
     jwt_audience: str = "sajilo-loan-users"
     access_token_expire_minutes: int = 60
+    # Default bank-defined Personal Loan annual interest rate (percent). This is
+    # the seeded fallback; the live value can be overridden at runtime and is
+    # stored in the app_settings collection (see loan_settings_service).
+    personal_loan_interest_rate: float = 11.0
     upload_dir: str = "uploads"
     max_upload_bytes: int = 10 * 1024 * 1024
     cors_allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"

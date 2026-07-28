@@ -16,6 +16,7 @@ from app.routes.notifications import router as notifications_router
 from app.routes.ocr import router as ocr_router
 from app.routes.officer import router as officer_router
 from app.routes.risk import router as risk_router
+from app.routes.settings import router as settings_router
 
 settings = get_settings()
 
@@ -48,6 +49,7 @@ app.include_router(notifications_router)
 app.include_router(ocr_router)
 app.include_router(risk_router)
 app.include_router(emi_router)
+app.include_router(settings_router)
 app.include_router(flags_router)
 app.include_router(officer_router)
 app.include_router(admin_router)

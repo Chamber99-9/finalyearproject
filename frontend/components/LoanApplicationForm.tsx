@@ -25,7 +25,7 @@ type ApplicationResponse = {
   existing_monthly_debt?: number | null;
   requested_loan_amount?: number | null;
   loan_duration_months?: number | null;
-  annual_interest_rate?: number | null;
+  interest_rate_used?: number | null;
   loan_tenure?: number | null;
   tenure_unit?: string | null;
   monthly_emi?: number | null;
@@ -108,7 +108,6 @@ const initialForm = {
   employment_type: "salaried",
   existing_monthly_debt: "0",
   requested_loan_amount: "",
-  annual_interest_rate: "",
   loan_tenure: "",
   tenure_unit: "years",
   loan_purpose: "",
@@ -226,10 +225,9 @@ export function LoanApplicationForm() {
   // client-side so the card can show the same recommendation as the server.
   useEffect(() => {
     const loanAmount = Number(form.requested_loan_amount);
-    const interestRate = Number(form.annual_interest_rate);
     const months = tenureToMonths(form.loan_tenure, form.tenure_unit);
 
-    if (!(loanAmount > 0) || !(interestRate > 0) || months < 1) {
+    if (!(loanAmount > 0) || months < 1) {
       setEmiSummary(null);
       return;
     }
@@ -237,12 +235,13 @@ export function LoanApplicationForm() {
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
-        const response = await fetch("/api/emi/calculate", {
+        // The interest rate is bank-defined: /api/emi/preview reads it
+        // server-side and returns it so the customer never enters a rate.
+        const response = await fetch("/api/emi/preview", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             loan_amount: loanAmount,
-            annual_interest_rate: interestRate,
             tenure: Number(form.loan_tenure),
             tenure_unit: form.tenure_unit
           }),
@@ -255,6 +254,7 @@ export function LoanApplicationForm() {
         }
 
         const emi = payload.emi as {
+          interest_rate_used: number;
           monthly_emi: number;
           total_interest: number;
           total_payment: number;
@@ -272,6 +272,7 @@ export function LoanApplicationForm() {
         }
 
         setEmiSummary({
+          interest_rate: emi.interest_rate_used,
           monthly_emi: emi.monthly_emi,
           total_interest: emi.total_interest,
           total_payment: emi.total_payment,
@@ -289,7 +290,6 @@ export function LoanApplicationForm() {
     };
   }, [
     form.requested_loan_amount,
-    form.annual_interest_rate,
     form.loan_tenure,
     form.tenure_unit,
     form.monthly_income,
@@ -419,10 +419,6 @@ export function LoanApplicationForm() {
       requested_loan_amount: valueToInput(
         application.requested_loan_amount,
         current.requested_loan_amount
-      ),
-      annual_interest_rate: valueToInput(
-        application.annual_interest_rate,
-        current.annual_interest_rate
       ),
       loan_tenure: valueToInput(application.loan_tenure, current.loan_tenure),
       tenure_unit: application.tenure_unit ?? current.tenure_unit,
@@ -664,9 +660,6 @@ function mergeCorrectedDataIntoForm(data: Record<string, string>) {
     if (Number(form.monthly_income) <= 0) return "Monthly income must be greater than 0.";
     if (Number(form.existing_monthly_debt) < 0) return "Existing monthly debt cannot be negative.";
     if (Number(form.requested_loan_amount) <= 0) return "Requested loan amount is required.";
-    if (Number(form.annual_interest_rate) <= 0) {
-      return "Annual interest rate must be greater than 0.";
-    }
     if (Number(form.loan_tenure) <= 0) return "Loan tenure must be greater than 0.";
     const duration = tenureToMonths(form.loan_tenure, form.tenure_unit);
     if (!Number.isInteger(duration) || duration < 1 || duration > 360) {
@@ -1086,13 +1079,6 @@ function FinalDetailsForm({
           value={form.requested_loan_amount}
         />
         <TextField
-          label="Annual interest rate (%)"
-          name="annual_interest_rate"
-          onChange={onChange}
-          type="number"
-          value={form.annual_interest_rate}
-        />
-        <TextField
           label="Loan tenure"
           name="loan_tenure"
           onChange={onChange}
@@ -1138,7 +1124,7 @@ function FinalDetailsForm({
         />
       </label>
       <EMICard
-        subtitle="Auto-calculated from your loan amount, interest rate and tenure."
+        subtitle="Auto-calculated from your loan amount and tenure using the bank's interest rate."
         summary={emiSummary ?? {}}
       />
       <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
@@ -1327,7 +1313,6 @@ function applicationPayload(form: FormState) {
     // Backend keeps loan_duration_months as the canonical installment count (N),
     // derived here from the tenure + unit the customer entered.
     loan_duration_months: tenureToMonths(form.loan_tenure, form.tenure_unit),
-    annual_interest_rate: Number(form.annual_interest_rate),
     loan_tenure: Number(form.loan_tenure),
     tenure_unit: form.tenure_unit,
     loan_purpose: form.loan_purpose.trim(),

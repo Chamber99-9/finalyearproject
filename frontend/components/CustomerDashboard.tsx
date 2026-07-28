@@ -207,10 +207,18 @@ export function CustomerDashboard() {
                         {application.loan_duration_months
                           ? `${application.loan_duration_months} months`
                           : "N/A"}
+                        {typeof application.interest_rate_used === "number"
+                          ? ` · ${application.interest_rate_used}% p.a.`
+                          : ""}
                       </p>
                       {typeof application.monthly_emi === "number" ? (
                         <p className="mt-1 text-xs font-semibold text-emerald-700">
                           EMI {formatMoney(application.monthly_emi)}/mo
+                        </p>
+                      ) : null}
+                      {application.affordability ? (
+                        <p className="mt-1 text-xs font-medium text-slate-600">
+                          {application.affordability}
                         </p>
                       ) : null}
                     </td>

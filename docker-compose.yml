@@ -1,0 +1,53 @@
+# Run the whole Sajilo Loan app locally with one command:
+#
+#     docker compose up --build
+#
+# Then open http://localhost:3000 in your browser.
+# (Requires Docker Desktop: https://www.docker.com/products/docker-desktop/)
+#
+# This runs three containers together — MongoDB, the FastAPI backend, and the
+# Next.js frontend — on a private network. Your browser only talks to the
+# frontend on port 3000; the frontend talks to the backend internally.
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"      # optional: lets you inspect the DB from your host
+    volumes:
+      - mongo_data:/data/db
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    environment:
+      APP_ENV: development            # relaxes the strong-secret check for local use
+      MONGODB_URI: mongodb://mongo:27017
+      MONGODB_DB: sajilo_loan
+      JWT_SECRET_KEY: local-dev-secret-key-not-for-production-use
+      CORS_ALLOWED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      TESSERACT_CMD: /usr/bin/tesseract
+      UPLOAD_DIR: /app/uploads
+    ports:
+      - "8000:8000"        # optional: backend docs at http://localhost:8000/docs
+    volumes:
+      - uploads_data:/app/uploads
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      # Server-side calls from the Next.js app to the backend over the docker network.
+      SAJILO_API_BASE_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+
+volumes:
+  mongo_data:
+  uploads_data:

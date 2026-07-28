@@ -29,6 +29,57 @@ export function OfficerApplicationReview({ applicationId }: OfficerApplicationRe
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [role, setRole] = useState("");
+  const [rateInput, setRateInput] = useState("");
+
+  useEffect(() => {
+    async function loadRole() {
+      try {
+        const response = await fetch("/api/auth/me");
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok) {
+          setRole(payload.user?.role ?? "");
+        }
+      } catch {
+        // Non-fatal: without a role the admin-only controls simply stay hidden.
+      }
+    }
+    loadRole();
+  }, []);
+
+  async function updateInterestRate() {
+    const rate = Number(rateInput);
+    if (!Number.isFinite(rate) || rate <= 0) {
+      setError("Enter a valid interest rate greater than 0.");
+      return;
+    }
+
+    setIsSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      const response = await fetch(
+        `/api/officer/applications/${applicationId}/interest-rate`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ interest_rate: rate })
+        }
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(payload.error ?? "Could not update the interest rate.");
+        return;
+      }
+      setRateInput("");
+      setSuccess("Interest rate updated and EMI recalculated.");
+      await loadDetail();
+    } catch {
+      setError("Could not reach the interest rate service.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
 
   const loadDetail = useCallback(async () => {
     setIsLoading(true);
@@ -228,22 +279,26 @@ export function OfficerApplicationReview({ applicationId }: OfficerApplicationRe
         </div>
         <div className="flex flex-wrap gap-3">
           <StatusBadge status={application.status} />
-          <button
-            className="rounded-md bg-emerald-700 px-4 py-2.5 font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-            disabled={isSaving}
-            onClick={() => updateStatus("approved")}
-            type="button"
-          >
-            Approve
-          </button>
-          <button
-            className="rounded-md bg-red-700 px-4 py-2.5 font-semibold text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-            disabled={isSaving}
-            onClick={() => updateStatus("rejected")}
-            type="button"
-          >
-            Reject
-          </button>
+          {role !== "admin" ? (
+            <>
+              <button
+                className="rounded-md bg-emerald-700 px-4 py-2.5 font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                disabled={isSaving}
+                onClick={() => updateStatus("approved")}
+                type="button"
+              >
+                Approve
+              </button>
+              <button
+                className="rounded-md bg-red-700 px-4 py-2.5 font-semibold text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                disabled={isSaving}
+                onClick={() => updateStatus("rejected")}
+                type="button"
+              >
+                Reject
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
 
@@ -277,9 +332,9 @@ export function OfficerApplicationReview({ applicationId }: OfficerApplicationRe
               ["Loan type", formatLabel(application.loan_type)],
               ["Requested amount", formatMoney(application.requested_loan_amount)],
               [
-                "Interest rate",
-                application.annual_interest_rate != null
-                  ? `${application.annual_interest_rate}% p.a.`
+                "Interest rate used",
+                application.interest_rate_used != null
+                  ? `${application.interest_rate_used}% p.a.`
                   : "N/A"
               ],
               [
@@ -298,6 +353,7 @@ export function OfficerApplicationReview({ applicationId }: OfficerApplicationRe
             title="EMI and affordability"
             subtitle="Auto-calculated when the customer submitted loan details."
             summary={{
+              interest_rate: application.interest_rate_used,
               monthly_emi: application.monthly_emi,
               total_interest: application.total_interest,
               total_payment: application.total_payment,
@@ -312,24 +368,61 @@ export function OfficerApplicationReview({ applicationId }: OfficerApplicationRe
 
         <div className="grid content-start gap-6">
           <RiskCard riskScore={riskScore} />
+          {role === "admin" ? (
+            <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="text-lg font-semibold text-slate-950">Override interest rate</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Current rate used:{" "}
+                <span className="font-semibold text-slate-950">
+                  {application.interest_rate_used != null
+                    ? `${application.interest_rate_used}% p.a.`
+                    : "N/A"}
+                </span>
+              </p>
+              <label className="mt-4 block">
+                <span className="text-sm font-medium text-slate-700">New interest rate (%)</span>
+                <input
+                  className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none ring-emerald-600 focus:ring-2"
+                  min={0}
+                  onChange={(event) => setRateInput(event.target.value)}
+                  placeholder="Example: 11"
+                  step="0.1"
+                  type="number"
+                  value={rateInput}
+                />
+              </label>
+              <button
+                className="mt-4 w-full rounded-md bg-emerald-700 px-4 py-2.5 font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                disabled={isSaving}
+                onClick={updateInterestRate}
+                type="button"
+              >
+                {isSaving ? "Saving..." : "Recalculate and save"}
+              </button>
+            </section>
+          ) : null}
           <FlagsCard flags={flags} />
-          <CounterOfferCard
-            amount={offerAmount}
-            application={application}
-            isSaving={isSaving}
-            message={offerMessage}
-            onAmountChange={setOfferAmount}
-            onMessageChange={setOfferMessage}
-            onSubmit={sendCounterOffer}
-          />
-          <RequestDocumentCard
-            isSaving={isSaving}
-            message={requestMessage}
-            onMessageChange={setRequestMessage}
-            onSubmit={requestDocuments}
-            onToggle={toggleDocument}
-            selectedDocuments={selectedDocuments}
-          />
+          {role !== "admin" ? (
+            <>
+              <CounterOfferCard
+                amount={offerAmount}
+                application={application}
+                isSaving={isSaving}
+                message={offerMessage}
+                onAmountChange={setOfferAmount}
+                onMessageChange={setOfferMessage}
+                onSubmit={sendCounterOffer}
+              />
+              <RequestDocumentCard
+                isSaving={isSaving}
+                message={requestMessage}
+                onMessageChange={setRequestMessage}
+                onSubmit={requestDocuments}
+                onToggle={toggleDocument}
+                selectedDocuments={selectedDocuments}
+              />
+            </>
+          ) : null}
         </div>
       </div>
     </section>

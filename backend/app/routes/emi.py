@@ -2,6 +2,7 @@
 
 Endpoints:
     POST /emi/calculate              -> ad-hoc EMI calculation (any signed-in user)
+    POST /emi/preview                -> customer preview using the bank-defined rate
     GET  /emi/schedule/{application_id} -> amortization schedule for a stored application
 """
 
@@ -12,10 +13,13 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.auth.dependencies import get_authenticated_user_id, get_current_user
 from app.database import get_database
+from app.models.application import LoanType
 from app.models.user import UserRole
 from app.schemas.emi import (
     AmortizationScheduleResponse,
     EMICalculateRequest,
+    EMIPreviewRequest,
+    EMIPreviewResponse,
     EMIResponse,
 )
 from app.services.application_service import get_application_by_id
@@ -26,8 +30,37 @@ from app.services.emi_service import (
     calculate_emi,
     normalize_tenure_to_months,
 )
+from app.services.loan_settings_service import get_loan_interest_rate
 
 router = APIRouter(prefix="/emi", tags=["emi"])
+
+
+@router.post("/preview", response_model=EMIPreviewResponse)
+async def preview_emi_route(
+    payload: EMIPreviewRequest,
+    current_user: Annotated[dict, Depends(get_current_user)],
+    database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+) -> dict:
+    """Preview the EMI for a Personal Loan using the bank-defined rate.
+
+    The customer supplies only amount + tenure; the interest rate is read from
+    the bank settings and returned so the form can display it read-only.
+    """
+    interest_rate_used = await get_loan_interest_rate(database, LoanType.PERSONAL.value)
+    try:
+        emi = calculate_emi(
+            loan_amount=payload.loan_amount,
+            annual_interest_rate=interest_rate_used,
+            tenure=payload.tenure,
+            tenure_unit=payload.tenure_unit,
+        )
+    except EMIValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+
+    return {"interest_rate_used": interest_rate_used, **emi}
 
 
 @router.post("/calculate", response_model=EMIResponse)
@@ -86,7 +119,10 @@ async def get_amortization_schedule(
         )
 
     loan_amount = application.get("requested_loan_amount")
-    annual_interest_rate = application.get("annual_interest_rate")
+    # Use the exact rate frozen on the application (falls back to legacy field).
+    annual_interest_rate = application.get("interest_rate_used")
+    if annual_interest_rate is None:
+        annual_interest_rate = application.get("annual_interest_rate")
     # loan_duration_months is the canonical installment count (N) on the document.
     tenure_months = application.get("loan_duration_months")
 

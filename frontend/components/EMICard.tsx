@@ -20,6 +20,7 @@ export type EMISummary = {
   total_payment?: number | null;
   affordability?: string | null;
   dti_ratio?: number | null;
+  interest_rate?: number | null;
 };
 
 type EMICardProps = {
@@ -56,6 +57,11 @@ export function EMICard({
 
       {hasEMI ? (
         <>
+          {typeof summary.interest_rate === "number" ? (
+            <p className="mt-3 inline-flex rounded-md bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800">
+              Bank interest rate: {summary.interest_rate}% p.a.
+            </p>
+          ) : null}
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             <Figure label="Monthly EMI" value={formatMoney(summary.monthly_emi)} emphasis />
             <Figure label="Total interest" value={formatMoney(summary.total_interest)} />
