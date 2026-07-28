@@ -11,6 +11,7 @@ import {
   formatMoney
 } from "@/lib/officer";
 import { CustomerLoans } from "@/components/CustomerLoans";
+import { KycPanel } from "@/components/KycPanel";
 
 export function CustomerDashboard() {
   const [applications, setApplications] = useState<LoanApplication[]>([]);
@@ -153,6 +154,10 @@ export function CustomerDashboard() {
         />
         <Metric label="Drafts" loading={isLoading} value={summary.drafts} />
         <Metric label="Pending review" loading={isLoading} value={summary.pending} />
+      </div>
+
+      <div className="mt-6">
+        <KycPanel />
       </div>
 
       <div className="mt-6">

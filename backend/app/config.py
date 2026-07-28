@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_issuer: str = "sajilo-loan-api"
     jwt_audience: str = "sajilo-loan-users"
-    access_token_expire_minutes: int = 60
+    access_token_expire_minutes: int = 720
     # Default bank-defined Personal Loan annual interest rate (percent). This is
     # the seeded fallback; the live value can be overridden at runtime and is
     # stored in the app_settings collection (see loan_settings_service).
@@ -32,6 +32,19 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     email_from: str = "no-reply@sajiloloan.example"
+    # Two-factor login (email OTP) + payment webhook signing.
+    otp_length: int = 6
+    otp_expiry_minutes: int = 5
+    otp_max_attempts: int = 5
+    payment_webhook_secret: str = "change-me-payment-webhook-secret"
+    # Payment rail: "mock" (built-in demo gateway) or "khalti" (real KPG-2 API).
+    payment_provider: str = "mock"
+    khalti_secret_key: str = ""
+    # Sandbox default; live is https://khalti.com/api/v2
+    khalti_base_url: str = "https://dev.khalti.com/api/v2"
+    # Where Khalti redirects the customer back to (your frontend origin).
+    payment_return_url_base: str = "http://localhost:3000"
+    payment_website_url: str = "http://localhost:3000"
     upload_dir: str = "uploads"
     max_upload_bytes: int = 10 * 1024 * 1024
     cors_allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"

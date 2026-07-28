@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { LoanAccount } from "@/lib/loans";
@@ -10,6 +11,7 @@ import { formatMoney } from "@/lib/officer";
  * balance and advances the next due date (EMI is due on the 10th each month).
  */
 export function CustomerLoans() {
+  const router = useRouter();
   const [loans, setLoans] = useState<LoanAccount[]>([]);
   const [payingId, setPayingId] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -39,19 +41,28 @@ export function CustomerLoans() {
     setError("");
     setSuccess("");
     try {
-      const response = await fetch(`/api/loans/${encodeURIComponent(loanId)}/pay`, {
-        method: "POST"
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        setError(payload.error ?? "Could not record the payment.");
+      // Create a payment intent, then send the customer to the gateway checkout
+      // (in production the intent returns the gateway's own checkout URL).
+      const initiate = await fetch(
+        `/api/loans/${encodeURIComponent(loanId)}/payments/initiate`,
+        { method: "POST" }
+      );
+      const initiatePayload = await initiate.json().catch(() => ({}));
+      if (!initiate.ok) {
+        setError(initiatePayload.error ?? "Could not start the payment.");
         return;
       }
-      const updated = payload.payment?.loan as LoanAccount;
-      setLoans((current) => current.map((loan) => (loan.id === updated.id ? updated : loan)));
-      setSuccess(`Paid ${formatMoney(payload.payment?.amount_paid ?? 0)}. Balance updated.`);
+      // Redirect to the gateway's checkout: the mock provider returns our
+      // internal checkout page; a real rail (Khalti) returns its hosted URL.
+      const payment = initiatePayload.payment;
+      const checkoutUrl = payment?.checkout_url as string | undefined;
+      if (checkoutUrl) {
+        window.location.href = checkoutUrl;
+      } else {
+        router.push(`/payments/${encodeURIComponent(payment?.id)}/checkout`);
+      }
     } catch {
-      setError("Could not reach the loan service.");
+      setError("Could not reach the payment service.");
     } finally {
       setPayingId("");
     }

@@ -26,6 +26,8 @@ def create_user_document(
         "password_hash": password_hash,
         "role": role.value,
         "is_blacklisted": False,
+        "mfa_enabled": False,
+        "kyc_status": "not_started",
         "created_at": datetime.now(UTC),
     }
 

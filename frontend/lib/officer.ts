@@ -10,6 +10,7 @@ export type ApplicationStatus =
 export type LoanApplication = {
   id: string;
   applicant_id: string;
+  applicant_email?: string | null;
   full_name?: string | null;
   citizenship_number?: string | null;
   phone?: string | null;

@@ -256,6 +256,26 @@ export function LoanApplicationForm() {
     loadLoanTypes();
   }, []);
 
+  // Prefill phone from the registered account (name + citizenship number come
+  // from the uploaded citizenship document via OCR).
+  useEffect(() => {
+    async function loadAccount() {
+      try {
+        const response = await fetch("/api/auth/me");
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok && payload.user) {
+          setForm((current) => ({
+            ...current,
+            phone: current.phone || payload.user.phone || current.phone
+          }));
+        }
+      } catch {
+        // Non-fatal.
+      }
+    }
+    loadAccount();
+  }, []);
+
   const activeOcr = ocrResults.find((result) => result.id === activeOcrId) ?? null;
   const activeDocument = activeOcr
     ? uploadedDocuments.find((document) => document.id === activeOcr.document_id)
@@ -1179,32 +1199,7 @@ function FinalDetailsForm({
     <section className="grid gap-5">
       <div>
         <h2 className="text-xl font-semibold text-slate-950">Complete application details</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
-          OCR-filled values can be edited before you submit.
-        </p>
       </div>
-
-      {eligibility ? (
-        <div
-          className={`rounded-lg border px-4 py-3 text-sm ${
-            eligibility.within_cap
-              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-              : "border-amber-200 bg-amber-50 text-amber-900"
-          }`}
-        >
-          <p className="font-semibold">
-            Eligible up to {formatMoney(eligibility.max_amount)} for this scheme.
-          </p>
-          <p className="mt-1">
-            {eligibility.within_cap
-              ? "Your requested amount is within your eligibility."
-              : "Your requested amount is above your eligibility cap — lower it to proceed."}
-            {eligibility.requires_collateral
-              ? " Collateral is required for this loan (above 2 lakh)."
-              : " No collateral required for this loan."}
-          </p>
-        </div>
-      ) : null}
       <div className="grid gap-5 lg:grid-cols-2">
         <TextField label="Full name" name="full_name" onChange={onChange} value={form.full_name} />
         <TextField

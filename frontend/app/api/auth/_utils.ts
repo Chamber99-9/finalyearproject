@@ -20,6 +20,9 @@ export function errorResponse(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
 
+// Keep the cookie lifetime in sync with the backend token expiry (12 hours).
+export const AUTH_COOKIE_MAX_AGE = 60 * 60 * 12;
+
 export function setAuthCookie(response: NextResponse, token: string) {
   response.cookies.set({
     name: AUTH_COOKIE_NAME,
@@ -28,7 +31,19 @@ export function setAuthCookie(response: NextResponse, token: string) {
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: 60 * 60
+    maxAge: AUTH_COOKIE_MAX_AGE
+  });
+}
+
+export function clearAuthCookie(response: NextResponse) {
+  response.cookies.set({
+    name: AUTH_COOKIE_NAME,
+    value: "",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 0
   });
 }
 

@@ -38,6 +38,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Two-factor: backend emailed an OTP; no cookie yet — the client verifies it.
+  if (payload.mfa_required) {
+    return NextResponse.json({ mfa_required: true, email: payload.email });
+  }
+
   if (!payload.access_token || !payload.user) {
     return errorResponse("Login response was missing authentication data.", 502);
   }

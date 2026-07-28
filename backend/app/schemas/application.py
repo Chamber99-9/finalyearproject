@@ -141,6 +141,7 @@ class ApplicationUpdateRequest(BaseModel):
 class ApplicationResponse(BaseModel):
     id: str
     applicant_id: str
+    applicant_email: str | None = None
     full_name: str | None = None
     citizenship_number: str | None = None
     phone: str | None = None

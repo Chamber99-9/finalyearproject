@@ -119,6 +119,11 @@ class FakeCollection:
             _apply_update(new_document, update)
             self.documents.append(deepcopy(new_document))
 
+    async def delete_many(self, query: dict[str, Any]) -> None:
+        self.documents = [
+            document for document in self.documents if not _matches(document, query)
+        ]
+
     async def count_documents(self, query: dict[str, Any]) -> int:
         return sum(1 for document in self.documents if _matches(document, query))
 

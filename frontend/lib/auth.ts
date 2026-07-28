@@ -6,6 +6,8 @@ export type AuthUser = {
   email: string;
   phone: string;
   role: UserRole;
+  mfa_enabled?: boolean;
+  kyc_status?: string;
   created_at: string;
 };
 

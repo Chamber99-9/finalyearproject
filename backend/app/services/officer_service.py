@@ -38,6 +38,7 @@ from app.services.notification_service import (
     create_notification,
 )
 from app.services.loan_account_service import create_loan_account_for_application
+from app.services.user_service import get_user_by_id
 from app.services.risk_service import (
     get_latest_risk_score_for_application,
     serialize_risk_score,
@@ -76,6 +77,11 @@ async def get_officer_application_detail(
         raise OfficerApplicationNotFoundError
 
     application_id = str(application["_id"])
+    # Attach the applicant's email (from their account) for officer review.
+    applicant = await get_user_by_id(database, str(application.get("applicant_id") or ""))
+    if applicant is not None:
+        application["applicant_email"] = applicant.get("email")
+
     documents = await list_documents_for_application(database, application_id)
     ocr_results: list[dict[str, Any]] = []
     for document in documents:

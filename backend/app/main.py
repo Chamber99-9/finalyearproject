@@ -13,7 +13,9 @@ from app.routes.eligibility import eligibility_router, verification_router
 from app.routes.emi import router as emi_router
 from app.routes.flags import router as flags_router
 from app.routes.health import router as health_router
+from app.routes.kyc import router as kyc_router
 from app.routes.loans import router as loans_router
+from app.routes.payments import loans_payment_router, payments_router
 from app.routes.notifications import router as notifications_router
 from app.routes.ocr import router as ocr_router
 from app.routes.officer import router as officer_router
@@ -57,6 +59,9 @@ app.include_router(rates_router)
 app.include_router(eligibility_router)
 app.include_router(verification_router)
 app.include_router(loans_router)
+app.include_router(kyc_router)
+app.include_router(loans_payment_router)
+app.include_router(payments_router)
 app.include_router(flags_router)
 app.include_router(officer_router)
 app.include_router(admin_router)

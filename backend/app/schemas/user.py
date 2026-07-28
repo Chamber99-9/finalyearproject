@@ -68,6 +68,9 @@ class UserResponse(BaseModel):
     email: EmailStr
     phone: str
     role: UserRole
+    is_blacklisted: bool = False
+    mfa_enabled: bool = False
+    kyc_status: str = "not_started"
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -77,3 +80,22 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class LoginResponse(BaseModel):
+    """Either a token (no MFA) or an MFA challenge (OTP emailed)."""
+
+    mfa_required: bool = False
+    access_token: str | None = None
+    token_type: str | None = None
+    user: UserResponse | None = None
+    email: str | None = None
+
+
+class VerifyOtpRequest(BaseModel):
+    email: EmailStr
+    otp: str = Field(..., min_length=4, max_length=10)
+
+
+class MfaStatusResponse(BaseModel):
+    mfa_enabled: bool

@@ -19,6 +19,9 @@ export function AuthPanel({ mode }: AuthPanelProps) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [otpRequired, setOtpRequired] = useState(false);
+  const [otpEmail, setOtpEmail] = useState("");
+  const [otp, setOtp] = useState("");
 
   function validateForm() {
     const normalizedEmail = email.trim();
@@ -91,6 +94,13 @@ export function AuthPanel({ mode }: AuthPanelProps) {
         return;
       }
 
+      // MFA: backend emailed an OTP — switch to the code-entry step.
+      if (!isRegister && payload.mfa_required) {
+        setOtpEmail(payload.email ?? email);
+        setOtpRequired(true);
+        return;
+      }
+
       const user = payload.user as AuthUser | undefined;
       if (!user?.role) {
         setError("Authentication succeeded, but user role was missing.");
@@ -111,6 +121,80 @@ export function AuthPanel({ mode }: AuthPanelProps) {
     } finally {
       setIsLoading(false);
     }
+  }
+
+  async function verifyOtp(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    if (otp.trim().length < 4) {
+      setError("Enter the code from your email.");
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const response = await fetch("/api/auth/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: otpEmail, otp: otp.trim() })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(payload.error ?? "Invalid or expired code.");
+        return;
+      }
+      const user = payload.user as AuthUser | undefined;
+      if (!user?.role) {
+        setError("Verification succeeded, but user role was missing.");
+        return;
+      }
+      router.push(getDashboardPath(user.role));
+      router.refresh();
+    } catch {
+      setError("Could not reach the authentication service. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  if (otpRequired) {
+    return (
+      <div className="mx-auto grid min-h-[calc(100vh-73px)] max-w-md items-center px-5 py-10">
+        <section className="panel-pad p-6">
+          <h2 className="text-2xl font-semibold text-slate-950">Enter your login code</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            We emailed a 6-digit code to {otpEmail}. It expires in a few minutes.
+          </p>
+          <form className="mt-6 space-y-4" onSubmit={verifyOtp}>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700">Login code</span>
+              <input
+                className="mt-2 w-full px-3 py-2.5 tracking-widest"
+                inputMode="numeric"
+                maxLength={8}
+                onChange={(e) => setOtp(e.target.value)}
+                placeholder="123456"
+                value={otp}
+              />
+            </label>
+            {error ? <p className="alert-error px-3 py-2">{error}</p> : null}
+            <button className="btn-primary w-full" disabled={isLoading} type="submit">
+              {isLoading ? "Verifying..." : "Verify and sign in"}
+            </button>
+          </form>
+          <button
+            className="mt-4 text-sm font-semibold text-emerald-700 hover:text-emerald-800"
+            onClick={() => {
+              setOtpRequired(false);
+              setOtp("");
+              setError("");
+            }}
+            type="button"
+          >
+            Back to login
+          </button>
+        </section>
+      </div>
+    );
   }
 
   return (

@@ -1,24 +1,39 @@
 from typing import Annotated
 
+from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_authenticated_user_id, get_current_user
 from app.auth.security import create_access_token, verify_password
 from app.config import get_settings
 from app.database import get_database
-from app.schemas.user import TokenResponse, UserLoginRequest, UserRegisterRequest, UserResponse
+from app.schemas.user import (
+    LoginResponse,
+    MfaStatusResponse,
+    TokenResponse,
+    UserLoginRequest,
+    UserRegisterRequest,
+    UserResponse,
+    VerifyOtpRequest,
+)
 from app.services.audit_service import AuditLogStorageError, create_audit_log
+from app.services.otp_service import OTPError, create_login_otp, verify_login_otp
 from app.services.user_service import (
     DuplicateUserError,
     create_customer_user,
     get_user_by_email,
+    get_user_by_id,
     serialize_user,
 )
 from app.utilities.rate_limit import RateLimitExceededError, enforce_rate_limit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
+
+
+def _object_id(user_id: str) -> ObjectId | str:
+    return ObjectId(user_id) if ObjectId.is_valid(user_id) else user_id
 
 
 def get_client_ip(request: Request) -> str:
@@ -90,7 +105,7 @@ async def register_user(
     return public_user
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=LoginResponse)
 async def login_user(
     request: Request,
     payload: UserLoginRequest,
@@ -141,6 +156,12 @@ async def login_user(
             ),
         )
 
+    # Two-factor: if MFA is enabled, email a one-time code and stop here. The
+    # client completes login via /auth/verify-otp.
+    if user.get("mfa_enabled"):
+        await create_login_otp(database, user)
+        return {"mfa_required": True, "email": normalized_email}
+
     public_user = serialize_user(user)
     try:
         await create_audit_log(
@@ -165,6 +186,72 @@ async def login_user(
         "token_type": "bearer",
         "user": public_user,
     }
+
+
+@router.post("/verify-otp", response_model=TokenResponse)
+async def verify_login_otp_route(
+    request: Request,
+    payload: VerifyOtpRequest,
+    database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+) -> dict:
+    """Complete two-factor login by verifying the emailed OTP."""
+    normalized_email = str(payload.email).lower().strip()
+    enforce_auth_rate_limit(request=request, action="login", email=normalized_email)
+
+    user = await get_user_by_email(database, payload.email)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or code.",
+        )
+    if user.get("is_blacklisted"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are blacklisted. Please contact the bank.",
+        )
+
+    user_id = str(user.get("_id") or user.get("id"))
+    try:
+        await verify_login_otp(database, user_id, payload.otp)
+    except OTPError as error:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(error),
+        ) from error
+
+    public_user = serialize_user(user)
+    return {
+        "access_token": create_access_token(public_user["id"]),
+        "token_type": "bearer",
+        "user": public_user,
+    }
+
+
+@router.post("/mfa/enable", response_model=MfaStatusResponse)
+async def enable_mfa(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+) -> dict:
+    """Turn on email-OTP two-factor authentication for the account."""
+    user_id = get_authenticated_user_id(current_user)
+    await database["users"].update_one(
+        {"_id": _object_id(user_id)},
+        {"$set": {"mfa_enabled": True}},
+    )
+    return {"mfa_enabled": True}
+
+
+@router.post("/mfa/disable", response_model=MfaStatusResponse)
+async def disable_mfa(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+) -> dict:
+    user_id = get_authenticated_user_id(current_user)
+    await database["users"].update_one(
+        {"_id": _object_id(user_id)},
+        {"$set": {"mfa_enabled": False}},
+    )
+    return {"mfa_enabled": False}
 
 
 @router.get("/me", response_model=UserResponse)
