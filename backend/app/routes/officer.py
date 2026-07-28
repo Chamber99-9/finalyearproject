@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.auth.dependencies import require_admin, require_officer, require_officer_or_admin
+from app.auth.dependencies import require_officer
 from app.database import get_database
 from app.schemas.application import ApplicationResponse
 from app.schemas.officer import (
@@ -13,13 +13,11 @@ from app.schemas.officer import (
     AdditionalDocumentRequestResponse,
     ApplicationStatusUpdateRequest,
     CounterOfferCreate,
-    InterestRateUpdateRequest,
     OfficerApplicationDetailResponse,
 )
 from app.services.document_request_service import serialize_document_request
 from app.services.document_service import get_document_by_id
 from app.services.officer_service import (
-    ApplicationIncompleteForRateError,
     OfficerApplicationNotFoundError,
     OfficerWorkflowStorageError,
     CounterOfferValidationError,
@@ -27,7 +25,6 @@ from app.services.officer_service import (
     get_officer_application_detail,
     list_review_applications,
     request_additional_documents,
-    update_application_interest_rate,
     update_officer_application_status,
 )
 
@@ -36,7 +33,7 @@ router = APIRouter(prefix="/officer", tags=["officer"])
 
 @router.get("/applications", response_model=list[ApplicationResponse])
 async def read_officer_applications(
-    current_user: Annotated[dict, Depends(require_officer_or_admin)],
+    current_user: Annotated[dict, Depends(require_officer)],
     database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
 ) -> list[dict]:
     return await list_review_applications(database)
@@ -48,7 +45,7 @@ async def read_officer_applications(
 )
 async def read_officer_application_detail(
     application_id: str,
-    current_user: Annotated[dict, Depends(require_officer_or_admin)],
+    current_user: Annotated[dict, Depends(require_officer)],
     database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
 ) -> dict:
     try:
@@ -146,44 +143,6 @@ async def request_officer_application_document(
         ) from error
 
     return serialize_document_request(document_request)
-
-
-@router.put(
-    "/applications/{application_id}/interest-rate",
-    response_model=ApplicationResponse,
-)
-async def override_application_interest_rate(
-    application_id: str,
-    payload: InterestRateUpdateRequest,
-    current_user: Annotated[dict, Depends(require_admin)],
-    database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
-) -> dict:
-    """Override the interest rate for one application and recalculate its EMI.
-
-    Admin-only. Officers see the rate read-only on the review screen.
-    """
-    try:
-        return await update_application_interest_rate(
-            database=database,
-            application_id=application_id,
-            payload=payload,
-            current_user=current_user,
-        )
-    except OfficerApplicationNotFoundError as error:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Application not found.",
-        ) from error
-    except ApplicationIncompleteForRateError as error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Application is missing loan amount or tenure; cannot recalculate EMI.",
-        ) from error
-    except OfficerWorkflowStorageError as error:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not update the interest rate.",
-        ) from error
 
 
 @router.post(

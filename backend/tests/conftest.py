@@ -98,6 +98,27 @@ class FakeCollection:
         self.documents.append(deepcopy(new_document))
         return deepcopy(new_document)
 
+    async def update_one(
+        self,
+        query: dict[str, Any],
+        update: dict[str, Any],
+        upsert: bool = False,
+    ) -> None:
+        for index, document in enumerate(self.documents):
+            if _matches(document, query):
+                updated_document = deepcopy(document)
+                _apply_update(updated_document, update)
+                self.documents[index] = updated_document
+                return
+
+        if upsert:
+            new_document: dict[str, Any] = {
+                key: value for key, value in query.items() if not isinstance(value, dict)
+            }
+            new_document["_id"] = ObjectId()
+            _apply_update(new_document, update)
+            self.documents.append(deepcopy(new_document))
+
     async def count_documents(self, query: dict[str, Any]) -> int:
         return sum(1 for document in self.documents if _matches(document, query))
 
