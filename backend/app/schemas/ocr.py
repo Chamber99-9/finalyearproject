@@ -56,6 +56,13 @@ class OCRResultResponse(BaseModel):
     application_id: str
     extracted_text: str
     confidence_score: float | None
+    # Signature-based document-type detection.
+    detected_document_type: str | None = None
+    detected_label: str | None = None
+    detection_confidence: float | None = None
+    matched_keywords: list[str] = []
+    detected_fields: dict[str, Any] = {}
+    type_match: bool | None = None
     verified_by_user: bool
     corrected_data: dict[str, Any]
     created_at: datetime

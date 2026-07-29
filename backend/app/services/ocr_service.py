@@ -9,6 +9,7 @@ import pytesseract
 
 from app.config import get_settings
 from app.models.ocr import create_ocr_result_document, ocr_result_id_to_str
+from app.services.document_classifier import classify_document
 
 OCR_RESULTS_COLLECTION = "ocr_results"
 DEFAULT_TESSERACT_PATHS = (
@@ -129,11 +130,18 @@ async def extract_and_save_ocr_result(
         raise EmptyOCRTextError
 
     confidence_score = calculate_confidence(ocr_data.get("conf", []))
+    # Detect what kind of document this is from its text, and check it against
+    # the type the customer selected for this upload slot.
+    classification = classify_document(
+        extracted_text,
+        expected_document_type=document.get("document_type"),
+    )
     result_document = create_ocr_result_document(
         document_id=str(document.get("id") or document.get("_id")),
         application_id=str(document["application_id"]),
         extracted_text=extracted_text,
         confidence_score=confidence_score,
+        classification=classification,
     )
 
     try:
