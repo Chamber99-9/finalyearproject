@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -90,6 +91,7 @@ class OfficerApplicationDetailResponse(BaseModel):
     application: ApplicationResponse
     documents: list[DocumentResponse]
     ocr_results: list[OCRResultResponse]
+    name_match: dict[str, Any] | None = None
     credit_risk_score: CreditRiskResponse | None
     suspicious_flags: ApplicationFlagsResponse | None
 

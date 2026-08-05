@@ -25,6 +25,15 @@ class Settings(BaseSettings):
     # after this many consecutive missed installments.
     emi_due_day: int = 10
     blacklist_overdue_months: int = 3
+    # EMI can be paid only within this many days before the due date (or after,
+    # if overdue) — not arbitrarily early.
+    emi_payment_window_days: int = 7
+    # Email reminder is sent this many days before the EMI due date.
+    reminder_days_before: int = 3
+    # Advance (lump-sum) prepayment charges: a flat bank fee plus a percentage
+    # of the amount being prepaid.
+    prepayment_flat_fee: float = 500.0
+    prepayment_fee_percent: float = 1.0
     # Email alerts. When smtp_host is set, real emails are sent; otherwise the
     # message is stored + logged (still demonstrable, no credentials needed).
     smtp_host: str = ""

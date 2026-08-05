@@ -21,6 +21,7 @@ SUPPORTED_IMAGE_CONTENT_TYPES = {
     "image/png",
     "image/webp",
 }
+PDF_CONTENT_TYPE = "application/pdf"
 
 
 class UnsupportedOCRFileError(Exception):
@@ -89,6 +90,45 @@ def configure_tesseract_command() -> None:
         raise OCRNotConfiguredError
 
     pytesseract.pytesseract.tesseract_cmd = str(tesseract_path)
+
+
+def extract_document_text(file_path: Path, content_type: str | None) -> str:
+    """Extract text from an uploaded document — images via Tesseract, PDFs via
+    pdfplumber.
+
+    Raises ``OCRNotConfiguredError`` when the required engine is unavailable, so
+    the caller can distinguish "the OCR engine is missing" (don't penalise the
+    customer) from "the document is unreadable/empty or the wrong type".
+    Returns "" when the file is readable but contains no extractable text.
+    """
+    if content_type in SUPPORTED_IMAGE_CONTENT_TYPES:
+        try:
+            with Image.open(file_path) as image:
+                image.load()
+                normalized_image = image.convert("RGB")
+        except (UnidentifiedImageError, OSError) as error:
+            raise OCRUnreadableFileError from error
+        try:
+            configure_tesseract_command()
+            return pytesseract.image_to_string(normalized_image).strip()
+        except pytesseract.TesseractNotFoundError as error:
+            raise OCRNotConfiguredError from error
+        except pytesseract.TesseractError as error:
+            raise OCRProcessingError from error
+
+    if content_type == PDF_CONTENT_TYPE:
+        try:
+            import pdfplumber
+        except ImportError as error:
+            raise OCRNotConfiguredError from error
+        try:
+            with pdfplumber.open(str(file_path)) as pdf:
+                parts = [page.extract_text() or "" for page in pdf.pages]
+            return "\n".join(parts).strip()
+        except Exception as error:  # noqa: BLE001 - malformed PDF -> unreadable
+            raise OCRUnreadableFileError from error
+
+    raise UnsupportedOCRFileError
 
 
 async def extract_and_save_ocr_result(

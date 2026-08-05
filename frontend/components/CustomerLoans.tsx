@@ -14,6 +14,8 @@ export function CustomerLoans() {
   const router = useRouter();
   const [loans, setLoans] = useState<LoanAccount[]>([]);
   const [payingId, setPayingId] = useState("");
+  const [prepayingId, setPrepayingId] = useState("");
+  const [prepayAmounts, setPrepayAmounts] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -52,27 +54,57 @@ export function CustomerLoans() {
         setError(initiatePayload.error ?? "Could not start the payment.");
         return;
       }
-      // Send the customer to the gateway. eSewa needs a signed form POST to its
-      // hosted page; Khalti returns a hosted URL; the mock provider returns our
-      // internal checkout page.
-      const payment = initiatePayload.payment;
-      const esewaForm = payment?.esewa_form as
-        | { action: string; fields: Record<string, string> }
-        | undefined;
-      if (esewaForm?.action && esewaForm.fields) {
-        submitEsewaForm(esewaForm);
-        return;
-      }
-      const checkoutUrl = payment?.checkout_url as string | undefined;
-      if (checkoutUrl) {
-        window.location.href = checkoutUrl;
-      } else {
-        router.push(`/payments/${encodeURIComponent(payment?.id)}/checkout`);
-      }
+      goToGateway(initiatePayload.payment);
     } catch {
       setError("Could not reach the payment service.");
     } finally {
       setPayingId("");
+    }
+  }
+
+  // Send the customer to the gateway: eSewa needs a signed form POST to its
+  // hosted page; Khalti returns a hosted URL; the mock provider returns our
+  // internal checkout page.
+  function goToGateway(payment: {
+    id?: string;
+    esewa_form?: { action: string; fields: Record<string, string> };
+    checkout_url?: string;
+  }) {
+    if (payment?.esewa_form?.action && payment.esewa_form.fields) {
+      submitEsewaForm(payment.esewa_form);
+      return;
+    }
+    if (payment?.checkout_url) {
+      window.location.href = payment.checkout_url;
+    } else {
+      router.push(`/payments/${encodeURIComponent(payment?.id ?? "")}/checkout`);
+    }
+  }
+
+  async function prepayLoan(loan: LoanAccount) {
+    setError("");
+    setSuccess("");
+    const amount = Number(prepayAmounts[loan.id]);
+    if (!(amount >= 1) || amount > loan.outstanding_balance) {
+      setError(`Advance amount must be between 1 and ${formatMoney(loan.outstanding_balance)}.`);
+      return;
+    }
+    setPrepayingId(loan.id);
+    try {
+      const initiate = await fetch(
+        `/api/loans/${encodeURIComponent(loan.id)}/payments/prepay-initiate`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ amount }) }
+      );
+      const payload = await initiate.json().catch(() => ({}));
+      if (!initiate.ok) {
+        setError(payload.error ?? "Could not start advance payment.");
+        return;
+      }
+      goToGateway(payload.payment);
+    } catch {
+      setError("Could not reach the payment service.");
+    } finally {
+      setPrepayingId("");
     }
   }
 
@@ -130,14 +162,41 @@ export function CustomerLoans() {
                 <div className="h-full bg-emerald-600" style={{ width: `${progress}%` }} />
               </div>
               {loan.status === "active" ? (
-                <button
-                  className="btn-primary mt-4 w-full px-4 py-2.5"
-                  disabled={payingId === loan.id}
-                  onClick={() => payEmi(loan.id)}
-                  type="button"
-                >
-                  {payingId === loan.id ? "Processing..." : `Pay EMI ${formatMoney(loan.monthly_emi)}`}
-                </button>
+                <div className="mt-4 space-y-3">
+                  <button
+                    className="btn-primary w-full px-4 py-2.5"
+                    disabled={payingId === loan.id}
+                    onClick={() => payEmi(loan.id)}
+                    type="button"
+                  >
+                    {payingId === loan.id ? "Processing..." : `Pay EMI ${formatMoney(loan.monthly_emi)}`}
+                  </button>
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-xs font-semibold text-slate-700">
+                      Advance payment (1 – {formatMoney(loan.outstanding_balance)})
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-500">A bank fee + small percentage applies.</p>
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        className="w-full px-2 py-1.5 text-sm"
+                        inputMode="numeric"
+                        placeholder="Amount"
+                        value={prepayAmounts[loan.id] ?? ""}
+                        onChange={(e) =>
+                          setPrepayAmounts((current) => ({ ...current, [loan.id]: e.target.value }))
+                        }
+                      />
+                      <button
+                        className="btn-secondary whitespace-nowrap px-3 py-1.5 text-sm"
+                        disabled={prepayingId === loan.id}
+                        onClick={() => prepayLoan(loan)}
+                        type="button"
+                      >
+                        {prepayingId === loan.id ? "..." : "Pay advance"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               ) : (
                 <p className="mt-4 rounded-md bg-emerald-50 px-3 py-2 text-center text-sm font-medium text-emerald-800">
                   Loan fully repaid

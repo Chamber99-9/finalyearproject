@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -61,6 +62,50 @@ class ApplicationIncompleteForRateError(Exception):
     """Raised when an application lacks amount/tenure needed to recompute EMI."""
 
 
+def _name_tokens(name: str | None) -> set[str]:
+    """Significant (>=3 char) alphabetic tokens of a name, lowercased."""
+    cleaned = re.sub(r"[^a-z ]", " ", (name or "").lower())
+    return {token for token in cleaned.split() if len(token) >= 3}
+
+
+def compute_name_match(
+    application: dict[str, Any],
+    ocr_results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Flag (never block) when the person's name differs across documents.
+
+    Compares each document's detected name against the application's full name.
+    Returns status match/mismatch/insufficient plus the names involved so the
+    officer can eyeball it. OCR names are noisy, so this is advisory only.
+    """
+    base = _name_tokens(application.get("full_name"))
+    document_names: list[str] = []
+    mismatched: list[str] = []
+    for result in ocr_results:
+        detected = (result.get("detected_fields") or {}).get("name")
+        if not detected:
+            continue
+        document_names.append(detected)
+        tokens = _name_tokens(detected)
+        if base and tokens and not (base & tokens):
+            mismatched.append(detected)
+
+    if not base or not document_names:
+        status = "insufficient"
+        match: bool | None = None
+    else:
+        match = len(mismatched) == 0
+        status = "match" if match else "mismatch"
+
+    return {
+        "status": status,
+        "match": match,
+        "application_name": application.get("full_name"),
+        "document_names": document_names,
+        "mismatched_names": mismatched,
+    }
+
+
 async def list_review_applications(
     database: AsyncIOMotorDatabase,
 ) -> list[dict[str, Any]]:
@@ -100,6 +145,7 @@ async def get_officer_application_detail(
         "application": serialize_application(application),
         "documents": [serialize_document(document) for document in documents],
         "ocr_results": ocr_results,
+        "name_match": compute_name_match(application, ocr_results),
         "credit_risk_score": (
             serialize_risk_score(risk_score) if risk_score is not None else None
         ),

@@ -10,6 +10,26 @@ class UserRoleUpdateRequest(BaseModel):
     role: UserRole
 
 
+class BlacklistRequest(BaseModel):
+    blacklisted: bool
+
+
+class ClockAdvanceRequest(BaseModel):
+    days: int = 1
+
+
+class ClockResponse(BaseModel):
+    offset_days: int
+    simulated_now: datetime
+
+
+class BillingRunResponse(BaseModel):
+    reminded: int
+    overdue: int
+    blacklisted: int
+    simulated_now: datetime
+
+
 class AdminOverviewResponse(BaseModel):
     total_users: int
     total_applications: int

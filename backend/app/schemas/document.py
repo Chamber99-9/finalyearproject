@@ -13,5 +13,8 @@ class DocumentResponse(BaseModel):
     filename: str
     content_type: str
     uploaded_at: datetime
+    # Auto-detected on upload (used to prefill the application form).
+    detected_citizenship_number: str | None = None
+    detected_name: str | None = None
 
     model_config = ConfigDict(from_attributes=True)

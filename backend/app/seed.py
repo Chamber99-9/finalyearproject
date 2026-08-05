@@ -67,6 +67,8 @@ async def seed() -> None:
                 "password_hash": document["password_hash"],
                 "role": role.value,
                 "is_blacklisted": False,
+                # Demo accounts never prompt for a login code.
+                "mfa_enabled": False,
             }
             if role == UserRole.CUSTOMER:
                 updates["kyc_status"] = "verified"

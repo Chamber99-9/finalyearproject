@@ -73,6 +73,32 @@ export function AdminUsersTable() {
     }
   }
 
+  async function toggleBlacklist(user: AdminUser) {
+    setUpdatingUserId(user.id);
+    setError("");
+    setSuccess("");
+    const next = !(user as AdminUser & { is_blacklisted?: boolean }).is_blacklisted;
+    try {
+      const response = await fetch(`/api/admin/users/${user.id}/blacklist`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ blacklisted: next })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(payload.error ?? "Could not update user.");
+        return;
+      }
+      const updated = payload.user as AdminUser;
+      setUsers((current) => current.map((u) => (u.id === updated.id ? updated : u)));
+      setSuccess(`${updated.full_name} ${next ? "blacklisted" : "restored"}.`);
+    } catch {
+      setError("Could not reach the service.");
+    } finally {
+      setUpdatingUserId("");
+    }
+  }
+
   return (
     <section className="page-wrap">
       <div className="page-heading">
@@ -108,12 +134,13 @@ export function AdminUsersTable() {
                 <th className="px-4 py-3">Contact</th>
                 <th className="px-4 py-3">Role</th>
                 <th className="px-4 py-3">Created</th>
+                <th className="px-4 py-3">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {isLoading ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-slate-600" colSpan={4}>
+                  <td className="px-4 py-8 text-center text-slate-600" colSpan={5}>
                     Loading users...
                   </td>
                 </tr>
@@ -147,11 +174,28 @@ export function AdminUsersTable() {
                     <td className="px-4 py-4 text-slate-600">
                       {formatAdminDate(user.created_at)}
                     </td>
+                    <td className="px-4 py-4">
+                      {(user as AdminUser & { is_blacklisted?: boolean }).is_blacklisted ? (
+                        <span className="status-pill bg-red-100 text-red-700">Blacklisted</span>
+                      ) : (
+                        <span className="status-pill bg-emerald-100 text-emerald-800">Active</span>
+                      )}
+                      <button
+                        className="mt-2 block text-xs font-semibold text-slate-600 hover:text-red-700 disabled:opacity-50"
+                        disabled={updatingUserId === user.id}
+                        onClick={() => toggleBlacklist(user)}
+                        type="button"
+                      >
+                        {(user as AdminUser & { is_blacklisted?: boolean }).is_blacklisted
+                          ? "Restore access"
+                          : "Blacklist user"}
+                      </button>
+                    </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td className="px-4 py-8 text-center text-slate-600" colSpan={4}>
+                  <td className="px-4 py-8 text-center text-slate-600" colSpan={5}>
                     No users found.
                   </td>
                 </tr>

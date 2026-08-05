@@ -13,7 +13,7 @@ system needs.
 """
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -23,10 +23,12 @@ from pymongo import ReturnDocument
 
 from app.auth.security import sign_payload, verify_signature
 from app.config import get_settings
+from app.services.clock_service import simulated_now
 from app.services.loan_account_service import (
     LoanAccountNotFoundError,
     LoanAccountStatusError,
     record_payment,
+    record_prepayment,
 )
 
 PAYMENTS_COLLECTION = "payments"
@@ -35,6 +37,9 @@ PENDING = "pending"
 SUCCESS = "success"
 FAILED = "failed"
 
+EMI_KIND = "emi"
+PREPAYMENT_KIND = "prepayment"
+
 
 class PaymentNotFoundError(Exception):
     pass
@@ -42,6 +47,18 @@ class PaymentNotFoundError(Exception):
 
 class PaymentSignatureError(Exception):
     pass
+
+
+class PaymentWindowError(Exception):
+    """EMI cannot be paid yet — outside the allowed payment window."""
+
+    def __init__(self, payable_from: datetime) -> None:
+        super().__init__("EMI is not payable yet.")
+        self.payable_from = payable_from
+
+
+class PrepaymentAmountError(Exception):
+    """Advance amount must be between 1 and the outstanding balance."""
 
 
 def serialize_payment(document: dict[str, Any]) -> dict[str, Any]:
@@ -86,12 +103,19 @@ async def initiate_payment(
         raise LoanAccountStatusError
 
     settings = get_settings()
-    now = datetime.now(UTC)
+    now = await simulated_now(database)
+    # EMI can only be paid within the window before the due date (or once overdue).
+    due = loan.get("next_due_date")
+    window = timedelta(days=settings.emi_payment_window_days)
+    if isinstance(due, datetime) and now < (due - window):
+        raise PaymentWindowError(due - window)
+
     amount = float(loan.get("monthly_emi") or 0)
     document = {
         "loan_id": loan_id,
         "applicant_id": applicant_id,
         "amount": amount,
+        "kind": EMI_KIND,
         "status": PENDING,
         "provider": "mock_gateway",
         "provider_ref": uuid4().hex,
@@ -158,15 +182,151 @@ async def initiate_payment(
     return document
 
 
+def compute_prepayment_fee(amount: float) -> dict[str, float]:
+    """Flat bank fee + percentage of the advance amount."""
+    settings = get_settings()
+    percent_fee = round(float(amount) * settings.prepayment_fee_percent / 100, 2)
+    flat_fee = round(settings.prepayment_flat_fee, 2)
+    total_fee = round(flat_fee + percent_fee, 2)
+    return {
+        "flat_fee": flat_fee,
+        "percent_fee": percent_fee,
+        "total_fee": total_fee,
+        "total_charge": round(float(amount) + total_fee, 2),
+    }
+
+
+async def _build_gateway_updates(
+    *,
+    database: AsyncIOMotorDatabase,
+    payment_id: str,
+    amount: float,
+    purchase_name: str,
+    return_url_base: str | None,
+    customer: dict[str, Any] | None,
+) -> dict[str, Any]:
+    settings = get_settings()
+    base = return_url_base or settings.payment_return_url_base
+    if settings.payment_provider == "esewa":
+        from app.services.payment_gateways import esewa_build_form
+
+        form = esewa_build_form(
+            amount=amount,
+            transaction_uuid=payment_id,
+            success_url=f"{base}/payments/return",
+            failure_url=f"{base}/payments/return?status=failed",
+        )
+        return {
+            "provider": "esewa",
+            "provider_ref": payment_id,
+            "esewa_form": form,
+            "checkout_url": None,
+            "updated_at": datetime.now(UTC),
+        }
+    if settings.payment_provider == "khalti":
+        from app.services.payment_gateways import khalti_initiate
+
+        init = await khalti_initiate(
+            amount_paisa=round(amount * 100),
+            purchase_order_id=payment_id,
+            purchase_order_name=purchase_name,
+            return_url=f"{base}/payments/return",
+            website_url=settings.payment_website_url,
+            customer=customer or {},
+        )
+        return {
+            "provider": "khalti",
+            "provider_ref": init["provider_ref"],
+            "checkout_url": init["checkout_url"],
+            "updated_at": datetime.now(UTC),
+        }
+    return {"checkout_url": f"/payments/{payment_id}/checkout", "updated_at": datetime.now(UTC)}
+
+
+async def initiate_prepayment(
+    database: AsyncIOMotorDatabase,
+    loan_id: str,
+    applicant_id: str,
+    principal_amount: float,
+    *,
+    return_url_base: str | None = None,
+    customer: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Create a PENDING advance-payment intent for a lump sum (1..outstanding).
+
+    The customer is charged the principal amount plus a flat fee + percentage;
+    on settlement only the principal reduces the outstanding balance.
+    """
+    if not ObjectId.is_valid(loan_id):
+        raise LoanAccountNotFoundError
+    loan = await database["loan_accounts"].find_one(
+        {"_id": ObjectId(loan_id), "applicant_id": applicant_id}
+    )
+    if loan is None:
+        raise LoanAccountNotFoundError
+    if loan.get("status") != "active":
+        raise LoanAccountStatusError
+
+    outstanding = float(loan.get("outstanding_balance") or 0)
+    principal = round(float(principal_amount), 2)
+    if principal < 1 or principal > outstanding:
+        raise PrepaymentAmountError
+
+    fee = compute_prepayment_fee(principal)
+    now = await simulated_now(database)
+    document = {
+        "loan_id": loan_id,
+        "applicant_id": applicant_id,
+        "amount": fee["total_charge"],
+        "kind": PREPAYMENT_KIND,
+        "prepay_principal": principal,
+        "fee_flat": fee["flat_fee"],
+        "fee_percent": fee["percent_fee"],
+        "fee_total": fee["total_fee"],
+        "status": PENDING,
+        "provider": "mock_gateway",
+        "provider_ref": uuid4().hex,
+        "idempotency_key": uuid4().hex,
+        "amount_paid": None,
+        "settled_at": None,
+        "checkout_url": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    result = await database[PAYMENTS_COLLECTION].insert_one(document)
+    document["_id"] = result.inserted_id
+    payment_id = str(document["_id"])
+
+    updates = await _build_gateway_updates(
+        database=database,
+        payment_id=payment_id,
+        amount=fee["total_charge"],
+        purchase_name=f"Advance payment for loan {loan_id}",
+        return_url_base=return_url_base,
+        customer=customer,
+    )
+    await database[PAYMENTS_COLLECTION].update_one({"_id": document["_id"]}, {"$set": updates})
+    document.update(updates)
+    return document
+
+
 async def _settle(database: AsyncIOMotorDatabase, payment: dict[str, Any]) -> dict[str, Any]:
     """Apply a successful payment to its loan (idempotent)."""
     if payment.get("status") == SUCCESS:
         return payment  # already settled
 
     try:
-        loan = await record_payment(
-            database, str(payment["loan_id"]), str(payment["applicant_id"])
-        )
+        if payment.get("kind") == PREPAYMENT_KIND:
+            loan = await record_prepayment(
+                database,
+                str(payment["loan_id"]),
+                str(payment["applicant_id"]),
+                float(payment.get("prepay_principal") or 0),
+            )
+        else:
+            loan = await record_payment(
+                database, str(payment["loan_id"]), str(payment["applicant_id"])
+            )
         amount_paid = loan.get("_last_payment", payment.get("amount"))
     except (LoanAccountNotFoundError, LoanAccountStatusError):
         # Loan gone or already closed — mark failed rather than raising.

@@ -26,8 +26,32 @@ export function OfficerApplicationReview({ applicationId }: OfficerApplicationRe
   const [offerMessage, setOfferMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [blacklisting, setBlacklisting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  async function blacklistApplicant(applicantId: string) {
+    setBlacklisting(true);
+    setError("");
+    setSuccess("");
+    try {
+      const response = await fetch(`/api/officer/users/${encodeURIComponent(applicantId)}/blacklist`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ blacklisted: true })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(payload.error ?? "Could not blacklist the applicant.");
+        return;
+      }
+      setSuccess("Applicant has been blacklisted and can no longer log in.");
+    } catch {
+      setError("Could not reach the service.");
+    } finally {
+      setBlacklisting(false);
+    }
+  }
 
   const loadDetail = useCallback(async () => {
     setIsLoading(true);
@@ -331,6 +355,38 @@ export function OfficerApplicationReview({ applicationId }: OfficerApplicationRe
             }}
             emptyMessage="No EMI calculated for this application yet."
           />
+
+          {detail.name_match && detail.name_match.match === false ? (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">
+              <p className="font-semibold text-amber-900">⚠ Names may not match across documents</p>
+              <p className="mt-1 text-sm text-amber-800">
+                Application name: {detail.name_match.application_name || "—"}. Detected on documents:{" "}
+                {detail.name_match.document_names.join(", ") || "—"}. Please verify these belong to the
+                same person before approving.
+              </p>
+            </div>
+          ) : null}
+
+          <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-950">Applicant controls</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Blacklisting immediately blocks this customer from logging in.
+                </p>
+              </div>
+              <button
+                className="rounded-md bg-red-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-800 disabled:bg-slate-400"
+                disabled={blacklisting}
+                onClick={() =>
+                  blacklistApplicant(String((application as { applicant_id?: string }).applicant_id ?? ""))
+                }
+                type="button"
+              >
+                {blacklisting ? "Blacklisting…" : "Blacklist applicant"}
+              </button>
+            </div>
+          </div>
 
           <DocumentsCard documents={documents} ocrResults={detail.ocr_results} />
         </div>

@@ -53,8 +53,16 @@ from app.services.notification_service import (
     create_notification,
     create_notifications_for_role,
 )
+from pathlib import Path
+
+from app.models.ocr import create_ocr_result_document
+from app.services.document_verification import verify_document_type
 from app.services.ocr_service import (
-    extract_and_save_ocr_result,
+    OCRNotConfiguredError,
+    OCRProcessingError,
+    OCRUnreadableFileError,
+    UnsupportedOCRFileError,
+    extract_document_text,
     get_latest_ocr_result_for_document,
     serialize_ocr_result,
 )
@@ -239,6 +247,7 @@ async def submit_application(
         readable = {
             "bank_statement": "account statement",
             "property_papers": "property papers",
+            "valuation_report": "valuation report",
         }
         needed = ", ".join(readable.get(item, item) for item in error.missing)
         raise HTTPException(
@@ -430,16 +439,54 @@ async def upload_application_document(
             detail="Could not save document metadata.",
         ) from error
 
-    # Customers no longer run OCR themselves — document verification is manual.
-    # We still auto-extract text server-side (best-effort) purely so the officer
-    # review screen can show a "detected document type" hint. Any failure
-    # (PDFs, unreadable images, OCR not installed) is silently ignored.
+    # Verify the document at upload: read its text (image via OCR, PDF via
+    # pdfplumber) and check it matches the type the customer selected. The three
+    # required KYC documents (citizenship, salary slip, bank statement) are
+    # rejected if they don't match; the customer is asked to send the right file.
+    file_path_obj = Path(str(document.get("file_path") or ""))
+    content_type = document.get("content_type")
+    engine_available = True
+    extracted_text = ""
     try:
-        await extract_and_save_ocr_result(database=database, document=document)
+        extracted_text = extract_document_text(file_path_obj, content_type)
+    except OCRNotConfiguredError:
+        engine_available = False
+    except (OCRUnreadableFileError, OCRProcessingError, UnsupportedOCRFileError):
+        extracted_text = ""
+
+    verdict = verify_document_type(
+        extracted_text,
+        str(document.get("document_type")),
+        engine_available=engine_available,
+    )
+    if not verdict["accepted"]:
+        # Remove the stored file + metadata and tell the customer to resend.
+        file_path_obj.unlink(missing_ok=True)
+        await database["application_documents"].delete_one({"_id": document["_id"]})
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=verdict["reason"],
+        )
+
+    # Accepted — persist the classification as the officer's detection hint.
+    try:
+        ocr_result = create_ocr_result_document(
+            document_id=str(document["_id"]),
+            application_id=application_id,
+            extracted_text=extracted_text,
+            confidence_score=None,
+            classification=verdict["classification"],
+        )
+        await database["ocr_results"].insert_one(ocr_result)
     except Exception:  # noqa: BLE001 - detection hint is best-effort only
         pass
 
     public_document = serialize_document(document)
+    # Surface detected identity fields so the app form can auto-fill them
+    # (e.g. the citizenship number from the citizenship document).
+    detected_fields = verdict["classification"].get("detected_fields") or {}
+    public_document["detected_citizenship_number"] = detected_fields.get("citizenship_number")
+    public_document["detected_name"] = detected_fields.get("name")
     try:
         await create_audit_log(
             database=database,

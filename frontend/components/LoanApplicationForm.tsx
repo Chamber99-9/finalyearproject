@@ -583,7 +583,17 @@ export function LoanApplicationForm() {
         return;
       }
 
-      const uploaded = payload.document as UploadedDocument;
+      const uploaded = payload.document as UploadedDocument & {
+        detected_citizenship_number?: string | null;
+        detected_name?: string | null;
+      };
+      // Auto-fill the citizenship number detected from the citizenship document.
+      if (uploaded.document_type === "citizenship_document" && uploaded.detected_citizenship_number) {
+        setForm((current) => ({
+          ...current,
+          citizenship_number: current.citizenship_number || uploaded.detected_citizenship_number || ""
+        }));
+      }
       const nextUploadedDocuments = [
         uploaded,
         ...uploadedDocuments.filter((document) => document.id !== uploaded.id)
@@ -607,10 +617,10 @@ export function LoanApplicationForm() {
 
       setSuccess(
         remainingRequestedDocuments.length > 0
-          ? `${labelForDocument(uploaded.document_type)} uploaded. Still needed: ${remainingRequestedDocuments
+          ? `✓ ${labelForDocument(uploaded.document_type)} accepted. Still needed: ${remainingRequestedDocuments
               .map(labelForDocument)
               .join(", ")}.`
-          : `${labelForDocument(uploaded.document_type)} uploaded. A loan officer will verify it manually.`
+          : `✓ Your ${labelForDocument(uploaded.document_type)} was accepted.`
       );
     } catch {
       setError("Could not reach the upload service. Please try again.");
@@ -777,9 +787,10 @@ export function LoanApplicationForm() {
                 A loan officer verifies your documents manually after you submit.
               </p>
               <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                Collateral-backed loans (above Rs 200,000) also require an{" "}
-                <span className="font-semibold">account statement</span> and{" "}
-                <span className="font-semibold">property papers</span> before submitting.
+                Collateral-backed loans (above Rs 200,000) require an{" "}
+                <span className="font-semibold">account statement</span>,{" "}
+                <span className="font-semibold">property papers</span>, and a{" "}
+                <span className="font-semibold">valuation report</span> — all mandatory before submitting.
               </p>
             </div>
             {documentRequest ? (

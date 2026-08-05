@@ -14,6 +14,7 @@ from app.models.loan_account import (
     create_loan_account_document,
     loan_account_id_to_str,
 )
+from app.services.clock_service import simulated_now
 from app.services.email_service import send_email
 from app.services.notification_service import create_notification
 
@@ -125,10 +126,57 @@ async def record_payment(
     return updated
 
 
+async def record_prepayment(
+    database: AsyncIOMotorDatabase,
+    loan_id: str,
+    applicant_id: str,
+    principal_amount: float,
+) -> dict[str, Any]:
+    """Apply an advance lump-sum payment: reduce the outstanding balance directly.
+
+    Only the principal portion (``principal_amount``) reduces the balance — any
+    bank/extra fee is charged on top and does not reduce what is owed. Regular
+    EMIs continue on the (now smaller) balance until it clears.
+    """
+    if not ObjectId.is_valid(loan_id):
+        raise LoanAccountNotFoundError
+
+    loan = await database[LOAN_ACCOUNTS_COLLECTION].find_one(
+        {"_id": ObjectId(loan_id), "applicant_id": applicant_id}
+    )
+    if loan is None:
+        raise LoanAccountNotFoundError
+    if loan.get("status") != LoanAccountStatus.ACTIVE.value:
+        raise LoanAccountStatusError
+
+    outstanding = float(loan.get("outstanding_balance") or 0)
+    amount = round(min(float(principal_amount), outstanding), 2)
+    new_outstanding = round(outstanding - amount, 2)
+    updates: dict[str, Any] = {
+        "outstanding_balance": max(new_outstanding, 0.0),
+        "updated_at": datetime.now(UTC),
+    }
+    if new_outstanding <= 0:
+        updates["status"] = LoanAccountStatus.COMPLETED.value
+        updates["outstanding_balance"] = 0.0
+        updates["installments_paid"] = int(loan.get("installments_total", 0))
+
+    updated = await database[LOAN_ACCOUNTS_COLLECTION].find_one_and_update(
+        {"_id": loan["_id"]},
+        {"$set": updates},
+        return_document=ReturnDocument.AFTER,
+    )
+    if updated is None:
+        raise LoanAccountNotFoundError
+    updated["_last_payment"] = amount
+    return updated
+
+
 async def process_due_reminders(database: AsyncIOMotorDatabase) -> dict[str, Any]:
-    """Notify + email customers whose EMI is due within 2 days."""
-    now = datetime.now(UTC)
-    window_end = now + timedelta(days=2)
+    """Notify + email customers whose EMI is due within the reminder window."""
+    days_before = get_settings().reminder_days_before
+    now = await simulated_now(database)
+    window_end = now + timedelta(days=days_before)
     reminded = 0
     cursor = database[LOAN_ACCOUNTS_COLLECTION].find(
         {"status": LoanAccountStatus.ACTIVE.value}
@@ -142,7 +190,7 @@ async def process_due_reminders(database: AsyncIOMotorDatabase) -> dict[str, Any
             emi = loan.get("monthly_emi")
             message = (
                 f"Your EMI of {emi} is due on {due.date()}. "
-                "Please pay within 2 days to avoid penalties."
+                f"Please pay within {days_before} days to avoid penalties."
             )
             try:
                 await create_notification(
@@ -169,7 +217,7 @@ async def process_due_reminders(database: AsyncIOMotorDatabase) -> dict[str, Any
 
 async def process_overdue(database: AsyncIOMotorDatabase) -> dict[str, Any]:
     """Advance overdue loans, count missed installments, and blacklist defaulters."""
-    now = datetime.now(UTC)
+    now = await simulated_now(database)
     threshold = get_settings().blacklist_overdue_months
     overdue = 0
     blacklisted = 0

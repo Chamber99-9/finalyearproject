@@ -80,6 +80,21 @@ async def update_user_role(
     )
 
 
+async def set_user_blacklist(
+    database: AsyncIOMotorDatabase,
+    user_id: str,
+    blacklisted: bool,
+) -> dict[str, Any] | None:
+    """Manually blacklist (or clear) a user. A blacklisted user cannot log in."""
+    if not ObjectId.is_valid(user_id):
+        return None
+    return await database[USERS_COLLECTION].find_one_and_update(
+        {"_id": ObjectId(user_id)},
+        {"$set": {"is_blacklisted": bool(blacklisted)}},
+        return_document=ReturnDocument.AFTER,
+    )
+
+
 async def create_customer_user(
     database: AsyncIOMotorDatabase,
     payload: UserRegisterRequest,

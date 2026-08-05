@@ -103,10 +103,19 @@ export type SuspiciousFlags = {
   flags: SuspiciousFlag[];
 };
 
+export type NameMatch = {
+  status: "match" | "mismatch" | "insufficient";
+  match: boolean | null;
+  application_name?: string | null;
+  document_names: string[];
+  mismatched_names: string[];
+};
+
 export type OfficerApplicationDetail = {
   application: LoanApplication;
   documents: UploadedDocument[];
   ocr_results: OCRResult[];
+  name_match?: NameMatch | null;
   credit_risk_score: CreditRiskScore | null;
   suspicious_flags: SuspiciousFlags | null;
 };

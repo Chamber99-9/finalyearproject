@@ -5,9 +5,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.auth.dependencies import require_officer
+from app.auth.dependencies import get_authenticated_user_id, require_officer
 from app.database import get_database
+from app.schemas.admin import BlacklistRequest
 from app.schemas.application import ApplicationResponse
+from app.schemas.user import UserResponse
+from app.services.audit_service import create_audit_log
+from app.services.notification_service import create_notification
+from app.services.user_service import serialize_user, set_user_blacklist
 from app.schemas.officer import (
     AdditionalDocumentRequestCreate,
     AdditionalDocumentRequestResponse,
@@ -31,6 +36,39 @@ from app.services.officer_service import (
 )
 
 router = APIRouter(prefix="/officer", tags=["officer"])
+
+
+@router.put("/users/{user_id}/blacklist", response_model=UserResponse)
+async def officer_blacklist_user(
+    user_id: str,
+    payload: BlacklistRequest,
+    current_user: Annotated[dict, Depends(require_officer)],
+    database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+) -> dict:
+    """Blacklist (or restore) a customer. A blacklisted customer cannot log in."""
+    updated = await set_user_blacklist(database, user_id, payload.blacklisted)
+    if updated is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    action = "user_blacklisted" if payload.blacklisted else "user_unblacklisted"
+    await create_audit_log(
+        database=database,
+        user_id=get_authenticated_user_id(current_user),
+        action=action,
+        entity_type="user",
+        entity_id=user_id,
+        details={"actor_role": "officer", "blacklisted": payload.blacklisted},
+    )
+    await create_notification(
+        database=database,
+        user_id=user_id,
+        title="Account blacklisted" if payload.blacklisted else "Account restored",
+        message=(
+            "Your account has been blacklisted. Please contact the bank."
+            if payload.blacklisted
+            else "Your account has been restored. You can log in again."
+        ),
+    )
+    return serialize_user(updated)
 
 
 @router.get("/applications", response_model=list[ApplicationResponse])

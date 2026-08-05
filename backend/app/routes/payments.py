@@ -17,14 +17,18 @@ from app.schemas.payments import (
     PaymentResponse,
     PaymentVerifyRequest,
     PaymentWebhookRequest,
+    PrepaymentRequest,
 )
 from app.services.loan_account_service import LoanAccountNotFoundError, LoanAccountStatusError
 from app.services.payment_gateways import GatewayError
 from app.services.payment_service import (
     PaymentNotFoundError,
     PaymentSignatureError,
+    PaymentWindowError,
+    PrepaymentAmountError,
     get_payment_for_customer,
     initiate_payment,
+    initiate_prepayment,
     process_webhook,
     serialize_payment,
     simulate_gateway_settlement,
@@ -68,6 +72,59 @@ async def initiate_loan_payment(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This loan is not active; no payment is due.",
+        ) from error
+    except PaymentWindowError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "This EMI is not payable yet. You can pay from "
+                f"{error.payable_from.date()} (within the days before the due date)."
+            ),
+        ) from error
+    return serialize_payment(payment)
+
+
+@loans_payment_router.post("/{loan_id}/payments/prepay-initiate", response_model=PaymentResponse)
+async def initiate_loan_prepayment(
+    loan_id: str,
+    payload: PrepaymentRequest,
+    current_user: Annotated[dict, Depends(require_customer)],
+    database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+) -> dict:
+    """Start an advance (lump-sum) payment of 1..outstanding, with fees."""
+    applicant_id = get_authenticated_user_id(current_user)
+    try:
+        payment = await initiate_prepayment(
+            database,
+            loan_id,
+            applicant_id,
+            payload.amount,
+            return_url_base=get_settings().payment_return_url_base,
+            customer={
+                "name": current_user.get("full_name"),
+                "email": current_user.get("email"),
+                "phone": current_user.get("phone"),
+            },
+        )
+    except GatewayError as error:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Payment gateway could not start the payment.",
+        ) from error
+    except LoanAccountNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Loan account not found.",
+        ) from error
+    except LoanAccountStatusError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This loan is not active.",
+        ) from error
+    except PrepaymentAmountError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Advance amount must be between 1 and your outstanding balance.",
         ) from error
     return serialize_payment(payment)
 
