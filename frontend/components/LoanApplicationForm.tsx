@@ -586,12 +586,16 @@ export function LoanApplicationForm() {
       const uploaded = payload.document as UploadedDocument & {
         detected_citizenship_number?: string | null;
         detected_name?: string | null;
+        detected_address?: string | null;
       };
-      // Auto-fill the citizenship number detected from the citizenship document.
-      if (uploaded.document_type === "citizenship_document" && uploaded.detected_citizenship_number) {
+      // Auto-fill name, citizenship number, and address detected from the
+      // citizenship document.
+      if (uploaded.document_type === "citizenship_document") {
         setForm((current) => ({
           ...current,
-          citizenship_number: current.citizenship_number || uploaded.detected_citizenship_number || ""
+          full_name: uploaded.detected_name || current.full_name,
+          citizenship_number: uploaded.detected_citizenship_number || current.citizenship_number,
+          address: uploaded.detected_address || current.address
         }));
       }
       const nextUploadedDocuments = [

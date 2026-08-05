@@ -487,6 +487,7 @@ async def upload_application_document(
     detected_fields = verdict["classification"].get("detected_fields") or {}
     public_document["detected_citizenship_number"] = detected_fields.get("citizenship_number")
     public_document["detected_name"] = detected_fields.get("name")
+    public_document["detected_address"] = detected_fields.get("address")
     try:
         await create_audit_log(
             database=database,

@@ -13,8 +13,14 @@ from typing import Any
 
 from app.services.document_classifier import classify_document
 
-# Documents that must be verified at upload time.
-GATED_DOCUMENT_TYPES = {"citizenship_document", "salary_slip", "bank_statement"}
+# Documents that must be verified at upload time (denied if they don't match).
+GATED_DOCUMENT_TYPES = {
+    "citizenship_document",
+    "salary_slip",
+    "bank_statement",
+    "property_papers",
+    "valuation_report",
+}
 # Minimum detection confidence to accept a gated document.
 ACCEPT_MIN_CONFIDENCE = 0.5
 
@@ -55,21 +61,9 @@ def verify_document_type(
             "classification": classification,
         }
 
-    if classification.get("type_match") is False:
-        return {
-            "accepted": False,
-            "reason": (
-                f"This looks like a {classification['detected_label']}, not the requested "
-                "document. Please send the correct document again."
-            ),
-            "classification": classification,
-        }
-
+    # Any mismatch or unrecognisable document is denied with the same message.
     return {
         "accepted": False,
-        "reason": (
-            "We couldn't recognise this document. Please send a clearer image or PDF "
-            "of the correct document again."
-        ),
+        "reason": "Doesnot look like required document",
         "classification": classification,
     }

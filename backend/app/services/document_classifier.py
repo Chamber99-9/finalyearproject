@@ -248,9 +248,53 @@ def _value_after(text: str, labels: list[str], pattern: str) -> str | None:
     return None
 
 
+_NAME_STOPWORDS = {
+    "date", "sex", "birth", "place", "citizenship", "address", "district",
+    "month", "day", "year", "permanent", "of", "and", "the", "certificate",
+    "male", "female", "father", "mother", "spouse",
+}
+
+
+def _clean_person_name(name: str | None) -> str | None:
+    """Trim trailing non-name words that OCR often runs into a name."""
+    if not name:
+        return None
+    tokens: list[str] = []
+    for token in name.split():
+        if token.lower() in _NAME_STOPWORDS:
+            break
+        tokens.append(token)
+        if len(tokens) >= 4:
+            break
+    cleaned = " ".join(tokens).strip()
+    return cleaned or None
+
+
+def _citizenship_address(text: str) -> str | None:
+    """Best-effort permanent address from a citizenship certificate.
+
+    Composes municipality + ward + district. The district lookup skips the
+    "District Administration Office" header so it picks the resident district.
+    """
+    municipality = _value_after(
+        text, ["municipality", "nagarpalika", "gaunpalika", "vdc", "न पा"], r"[A-Za-zऀ-ॿ]{3,}"
+    )
+    ward = _value_after(text, ["ward no", "ward", "वडा"], r"\d{1,2}")
+    district = None
+    for match in re.finditer(r"district[^0-9A-Za-zऀ-ॿ]{0,10}([A-Za-zऀ-ॿ]{3,})", text, re.IGNORECASE):
+        candidate = match.group(1)
+        if candidate.lower() not in {"administration", "admin", "prashasan"}:
+            district = candidate
+            break
+    parts = [part for part in [municipality, f"Ward {ward}" if ward else None, district] if part]
+    return ", ".join(parts) if parts else None
+
+
 def _extract_fields(text: str, doc_type: str) -> dict[str, str]:
     fields: dict[str, str] = {}
-    name = _value_after(text, ["full name", "name", "नाम"], r"[A-Z][A-Za-z.]+(?:\s+[A-Z][A-Za-z.]+){0,3}")
+    name = _clean_person_name(
+        _value_after(text, ["full name", "name", "नाम"], r"[A-Z][A-Za-z.]+(?:\s+[A-Z][A-Za-z.]+){0,3}")
+    )
     if name:
         fields["name"] = name
 
@@ -269,6 +313,9 @@ def _extract_fields(text: str, doc_type: str) -> dict[str, str]:
         )
         if cit:
             fields["citizenship_number"] = cit
+        address = _citizenship_address(text)
+        if address:
+            fields["address"] = address
     elif doc_type == BANK_STATEMENT:
         acc = _value_after(text, ["account number", "a/c no", "account no"], r"\d[\d\-]{5,}")
         if acc:

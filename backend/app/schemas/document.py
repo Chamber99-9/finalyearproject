@@ -16,5 +16,6 @@ class DocumentResponse(BaseModel):
     # Auto-detected on upload (used to prefill the application form).
     detected_citizenship_number: str | None = None
     detected_name: str | None = None
+    detected_address: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
