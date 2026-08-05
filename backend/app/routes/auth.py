@@ -11,7 +11,6 @@ from app.database import get_database
 from app.schemas.user import (
     LoginResponse,
     MfaStatusResponse,
-    RegisterResponse,
     TokenResponse,
     UserLoginRequest,
     UserRegisterRequest,
@@ -66,7 +65,7 @@ def enforce_auth_rate_limit(*, request: Request, action: str, email: str | None 
 
 @router.post(
     "/register",
-    response_model=RegisterResponse,
+    response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def register_user(
@@ -85,8 +84,6 @@ async def register_user(
         ) from error
 
     public_user = serialize_user(user)
-    # Email a verification OTP; the account stays inactive until it is verified.
-    await create_email_otp(database, user, purpose="verification")
     try:
         await create_audit_log(
             database=database,
@@ -97,7 +94,6 @@ async def register_user(
             details={
                 "role": public_user["role"],
                 "email": public_user["email"],
-                "email_verified": False,
             },
         )
     except AuditLogStorageError as error:
@@ -106,7 +102,7 @@ async def register_user(
             detail="User registered, but audit log could not be created.",
         ) from error
 
-    return {"verification_required": True, "email": public_user["email"]}
+    return public_user
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -159,11 +155,6 @@ async def login_user(
                 "Please contact the bank."
             ),
         )
-
-    # Unverified email: re-send a verification OTP and require it before login.
-    if not user.get("email_verified", False):
-        await create_email_otp(database, user, purpose="verification")
-        return {"verification_required": True, "email": normalized_email}
 
     # Two-factor: if MFA is enabled, email a one-time code and stop here. The
     # client completes login via /auth/verify-otp.
@@ -227,28 +218,6 @@ async def verify_login_otp_route(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(error),
         ) from error
-
-    # First successful verification activates the email (registration flow).
-    if not user.get("email_verified", False):
-        await database["users"].update_one(
-            {"_id": _object_id(user_id)},
-            {"$set": {"email_verified": True}},
-        )
-        user["email_verified"] = True
-        try:
-            await create_audit_log(
-                database=database,
-                user_id=user_id,
-                action="email_verified",
-                entity_type="user",
-                entity_id=user_id,
-                details={"email": normalized_email},
-            )
-        except AuditLogStorageError as error:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Email verified, but audit log could not be created.",
-            ) from error
 
     public_user = serialize_user(user)
     return {

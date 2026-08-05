@@ -232,9 +232,8 @@ def seed_user(
         password_hash=hash_password(password),
         role=role,
     )
-    # Seeded test users are pre-verified; seeded customers are KYC-verified so
-    # the loan-application flow is exercisable without a KYC step in each test.
-    document["email_verified"] = True
+    # Seeded customers are KYC-verified so the loan-application flow is
+    # exercisable without a KYC step in each test.
     if role == UserRole.CUSTOMER:
         document["kyc_status"] = "verified"
     return fake_database.seed("users", document)

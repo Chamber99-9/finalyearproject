@@ -57,9 +57,8 @@ async def seed() -> None:
             password_hash=hash_password(password),
             role=role,
         )
-        # Seeded accounts skip email verification; the demo customer is also
-        # pre-KYC-verified so the loan flow is usable out of the box.
-        document["email_verified"] = True
+        # The demo customer is pre-KYC-verified so the loan flow is usable out
+        # of the box.
         if role == UserRole.CUSTOMER:
             document["kyc_status"] = "verified"
         existing = await database["users"].find_one({"email": email})
@@ -68,7 +67,6 @@ async def seed() -> None:
                 "password_hash": document["password_hash"],
                 "role": role.value,
                 "is_blacklisted": False,
-                "email_verified": True,
             }
             if role == UserRole.CUSTOMER:
                 updates["kyc_status"] = "verified"

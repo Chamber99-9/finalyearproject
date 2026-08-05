@@ -4,7 +4,8 @@ import {
   API_BASE_URL,
   backendErrorMessage,
   errorResponse,
-  readBackendJson
+  readBackendJson,
+  setAuthCookie
 } from "../_utils";
 
 export async function POST(request: NextRequest) {
@@ -42,10 +43,24 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Registration no longer auto-logs-in: the account is inactive until the
-  // emailed OTP is verified. Hand the verification challenge back to the client.
-  return NextResponse.json(
-    { verification_required: true, email: registerPayload.email ?? email },
-    { status: 201 }
-  );
+  // Registration signs the customer straight in.
+  let loginResponse: Response;
+  try {
+    loginResponse = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password })
+    });
+  } catch {
+    return errorResponse("Account created, but authentication service became unavailable.", 503);
+  }
+
+  const loginPayload = await readBackendJson(loginResponse);
+  if (!loginResponse.ok || !loginPayload.access_token || !loginPayload.user) {
+    return errorResponse("Account created, but automatic login failed.", 502);
+  }
+
+  const response = NextResponse.json({ user: loginPayload.user }, { status: 201 });
+  setAuthCookie(response, loginPayload.access_token);
+  return response;
 }

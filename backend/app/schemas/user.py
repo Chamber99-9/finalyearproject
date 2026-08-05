@@ -79,7 +79,6 @@ class UserResponse(BaseModel):
     role: UserRole
     is_blacklisted: bool = False
     mfa_enabled: bool = False
-    email_verified: bool = True
     kyc_status: str = "not_started"
     created_at: datetime
 
@@ -93,21 +92,13 @@ class TokenResponse(BaseModel):
 
 
 class LoginResponse(BaseModel):
-    """A token, an MFA challenge, or an email-verification challenge (OTP emailed)."""
+    """Either a token (no MFA) or an MFA challenge (OTP emailed)."""
 
     mfa_required: bool = False
-    verification_required: bool = False
     access_token: str | None = None
     token_type: str | None = None
     user: UserResponse | None = None
     email: str | None = None
-
-
-class RegisterResponse(BaseModel):
-    """Registration always requires email verification before activation."""
-
-    verification_required: bool = True
-    email: str
 
 
 class VerifyOtpRequest(BaseModel):
