@@ -332,7 +332,7 @@ export function OfficerApplicationReview({ applicationId }: OfficerApplicationRe
             emptyMessage="No EMI calculated for this application yet."
           />
 
-          <DocumentsCard documents={documents} />
+          <DocumentsCard documents={documents} ocrResults={detail.ocr_results} />
         </div>
 
         <div className="grid content-start gap-6">
@@ -442,16 +442,26 @@ function InfoGrid({ title, rows }: { title: string; rows: Array<[string, string]
 }
 
 function DocumentsCard({
-  documents
+  documents,
+  ocrResults
 }: {
   documents: OfficerApplicationDetail["documents"];
+  ocrResults: OfficerApplicationDetail["ocr_results"];
 }) {
+  const detectionByDocument = new Map(
+    ocrResults.map((result) => [result.document_id, result] as const)
+  );
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
       <h2 className="text-lg font-semibold text-slate-950">Uploaded documents</h2>
+      <p className="mt-1 text-sm text-slate-600">
+        Verify each document manually. The detected type is only an automated hint.
+      </p>
       <div className="mt-4 grid gap-4">
         {documents.length > 0 ? (
-          documents.map((document) => (
+          documents.map((document) => {
+            const detection = detectionByDocument.get(document.id);
+            return (
             <article
               className="rounded-md border border-slate-200 bg-slate-50 p-4"
               key={document.id}
@@ -472,6 +482,23 @@ function DocumentsCard({
                   {document.content_type}
                 </span>
               </div>
+              {detection && detection.detected_label ? (
+                <p
+                  className={`mt-3 inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold ${
+                    detection.type_match === false
+                      ? "bg-red-100 text-red-700"
+                      : detection.type_match === true
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-amber-100 text-amber-800"
+                  }`}
+                >
+                  Detected hint: {detection.detected_label}
+                  {typeof detection.detection_confidence === "number"
+                    ? ` (${Math.round(detection.detection_confidence * 100)}%)`
+                    : ""}
+                  {detection.type_match === false ? " · does not match" : ""}
+                </p>
+              ) : null}
               <a
                 className="mt-4 inline-flex rounded-md bg-emerald-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-800"
                 href={`/api/officer/documents/${encodeURIComponent(document.id)}/download`}
@@ -481,7 +508,8 @@ function DocumentsCard({
                 Open document
               </a>
             </article>
-          ))
+            );
+          })
         ) : (
           <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">
             No documents uploaded.

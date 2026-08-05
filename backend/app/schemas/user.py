@@ -33,6 +33,15 @@ class UserRegisterRequest(BaseModel):
             raise ValueError("Value cannot be empty")
         return value
 
+    @field_validator("email")
+    @classmethod
+    def require_gmail(cls, value: EmailStr) -> EmailStr:
+        # Registration is restricted to Gmail addresses; the account is then
+        # activated only after the emailed OTP is verified.
+        if not str(value).lower().strip().endswith("@gmail.com"):
+            raise ValueError("Registration requires a valid @gmail.com email address.")
+        return value
+
     @field_validator("phone")
     @classmethod
     def validate_phone(cls, value: str) -> str:
@@ -70,6 +79,7 @@ class UserResponse(BaseModel):
     role: UserRole
     is_blacklisted: bool = False
     mfa_enabled: bool = False
+    email_verified: bool = True
     kyc_status: str = "not_started"
     created_at: datetime
 
@@ -83,13 +93,21 @@ class TokenResponse(BaseModel):
 
 
 class LoginResponse(BaseModel):
-    """Either a token (no MFA) or an MFA challenge (OTP emailed)."""
+    """A token, an MFA challenge, or an email-verification challenge (OTP emailed)."""
 
     mfa_required: bool = False
+    verification_required: bool = False
     access_token: str | None = None
     token_type: str | None = None
     user: UserResponse | None = None
     email: str | None = None
+
+
+class RegisterResponse(BaseModel):
+    """Registration always requires email verification before activation."""
+
+    verification_required: bool = True
+    email: str
 
 
 class VerifyOtpRequest(BaseModel):

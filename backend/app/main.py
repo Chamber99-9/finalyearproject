@@ -28,6 +28,16 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    # Create indexes in production only; dev/test runs skip this so the test
+    # suite never blocks on a real MongoDB connection.
+    if settings.app_env.lower() == "production":
+        try:
+            from app.database import get_database
+            from app.database.indexes import ensure_indexes
+
+            await ensure_indexes(get_database())
+        except Exception:  # noqa: BLE001 - startup must not fail on indexing
+            pass
     yield
     close_database_connection()
 

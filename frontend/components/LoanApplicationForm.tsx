@@ -8,12 +8,13 @@ import { EMIBreakdown } from "@/components/EMIBreakdown";
 import { Eligibility, LoanTypeInfo, PanCheck } from "@/lib/loans";
 import { formatMoney } from "@/lib/officer";
 
-type Step = "loan" | "documents" | "verify" | "details" | "done";
+type Step = "loan" | "documents" | "details" | "done";
 type DocumentType =
   | "citizenship_document"
   | "salary_slip"
   | "bank_statement"
   | "valuation_report"
+  | "property_papers"
   | "recommendation_letter"
   | "supporting_document";
 
@@ -52,17 +53,6 @@ type UploadedDocument = {
   uploaded_at: string;
 };
 
-type OCRResult = {
-  id: string;
-  document_id: string;
-  application_id: string;
-  extracted_text: string;
-  confidence_score: number | null;
-  verified_by_user: boolean;
-  corrected_data: Record<string, unknown>;
-  created_at: string;
-};
-
 type DocumentRequest = {
   id: string;
   document_types: DocumentType[];
@@ -75,6 +65,7 @@ const documentOptions: Array<{ value: DocumentType; label: string; required: boo
   { value: "salary_slip", label: "Salary slip", required: true },
   { value: "bank_statement", label: "Bank statement", required: true },
   { value: "valuation_report", label: "Collateral valuation report", required: false },
+  { value: "property_papers", label: "Property papers (ownership certificate)", required: false },
   { value: "recommendation_letter", label: "Recommendation letter", required: false },
   { value: "supporting_document", label: "Optional supporting document", required: false }
 ];
@@ -107,6 +98,7 @@ const tenureUnitOptions = [
 
 const initialForm = {
   full_name: "",
+  email: "",
   citizenship_number: "",
   phone: "",
   address: "",
@@ -144,6 +136,7 @@ const emptyDocumentFiles: Record<DocumentType, File | null> = {
   salary_slip: null,
   bank_statement: null,
   valuation_report: null,
+  property_papers: null,
   recommendation_letter: null,
   supporting_document: null
 };
@@ -152,6 +145,7 @@ const emptyInputVersions: Record<DocumentType, number> = {
   salary_slip: 0,
   bank_statement: 0,
   valuation_report: 0,
+  property_papers: 0,
   recommendation_letter: 0,
   supporting_document: 0
 };
@@ -167,9 +161,6 @@ export function LoanApplicationForm() {
     useState<Record<DocumentType, number>>(emptyInputVersions);
   const [uploadedDocuments, setUploadedDocuments] = useState<UploadedDocument[]>([]);
   const [documentRequest, setDocumentRequest] = useState<DocumentRequest | null>(null);
-  const [ocrResults, setOcrResults] = useState<OCRResult[]>([]);
-  const [activeOcrId, setActiveOcrId] = useState("");
-  const [correctedData, setCorrectedData] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -256,8 +247,9 @@ export function LoanApplicationForm() {
     loadLoanTypes();
   }, []);
 
-  // Prefill phone from the registered account (name + citizenship number come
-  // from the uploaded citizenship document via OCR).
+  // Prefill name, email, and phone from the registered account. Document
+  // verification is manual by the officer, so identity fields come from the
+  // account rather than OCR.
   useEffect(() => {
     async function loadAccount() {
       try {
@@ -266,6 +258,8 @@ export function LoanApplicationForm() {
         if (response.ok && payload.user) {
           setForm((current) => ({
             ...current,
+            full_name: current.full_name || payload.user.full_name || current.full_name,
+            email: current.email || payload.user.email || current.email,
             phone: current.phone || payload.user.phone || current.phone
           }));
         }
@@ -275,11 +269,6 @@ export function LoanApplicationForm() {
     }
     loadAccount();
   }, []);
-
-  const activeOcr = ocrResults.find((result) => result.id === activeOcrId) ?? null;
-  const activeDocument = activeOcr
-    ? uploadedDocuments.find((document) => document.id === activeOcr.document_id)
-    : null;
 
   const missingRequiredDocuments = useMemo(() => {
     const uploadedTypes = new Set(uploadedDocuments.map((document) => document.document_type));
@@ -318,11 +307,10 @@ export function LoanApplicationForm() {
 
         const application = payload.application as ApplicationResponse;
         applyApplicationToForm(application);
-        const [documents] = await Promise.all([
+        await Promise.all([
           loadSavedDocuments(applicationId),
           loadDocumentRequest(applicationId)
         ]);
-        await loadSavedOCRResults(applicationId, documents);
         setStep(application.status === "draft" ? "documents" : "done");
       } catch {
         setError("Could not reach the application service.");
@@ -334,10 +322,8 @@ export function LoanApplicationForm() {
     loadApplication();
   }, [applicationId]);
 
-  // Live EMI preview (requirements #6, #11): recalculates the EMI whenever the
-  // loan amount, interest rate or tenure change and all are valid. Calls the
-  // backend calculator, then derives an EMI-inclusive DTI + affordability
-  // client-side so the card can show the same recommendation as the server.
+  // Live EMI preview: recalculates the EMI whenever the loan amount, rate or
+  // tenure change. The interest rate is bank-defined and returned by the server.
   useEffect(() => {
     const loanAmount = Number(form.requested_loan_amount);
     const months = tenureToMonths(form.loan_tenure, form.tenure_unit);
@@ -350,8 +336,6 @@ export function LoanApplicationForm() {
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
-        // The interest rate is bank-defined: /api/emi/preview reads it
-        // server-side and returns it so the customer never enters a rate.
         const response = await fetch("/api/emi/preview", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -376,7 +360,6 @@ export function LoanApplicationForm() {
           total_payment: number;
         };
 
-        // Derive DTI + affordability for the preview when income is available.
         const income = Number(form.monthly_income);
         const existingDebt = Number(form.existing_monthly_debt);
         let dtiRatio: number | null = null;
@@ -440,29 +423,6 @@ export function LoanApplicationForm() {
     setDocumentRequest(payload.document_request ?? null);
   }
 
-  async function loadSavedOCRResults(id: string, documents: UploadedDocument[]) {
-    const response = await fetch(`/api/applications/${encodeURIComponent(id)}/ocr-results`);
-    const payload = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      setError(payload.error ?? "Could not load OCR results.");
-      return;
-    }
-
-    const results = (payload.ocr_results ?? []) as OCRResult[];
-    setOcrResults(results);
-
-    const documentsById = new Map(
-      documents.map((document) => [document.id, document.document_type])
-    );
-    for (const result of results.slice().reverse()) {
-      const documentType = documentsById.get(result.document_id);
-      if (documentType) {
-        mergeCorrectedDataIntoForm(defaultCorrectedData(documentType, result));
-      }
-    }
-  }
-
   function isDocumentTypeAllowed(type: DocumentType) {
     if (!documentRequest) {
       return true;
@@ -487,7 +447,7 @@ export function LoanApplicationForm() {
       return;
     }
 
-    setStep(ocrResults.length > 0 ? "verify" : "details");
+    setStep("details");
   }
 
   function selectStep(nextStep: Step) {
@@ -645,128 +605,18 @@ export function LoanApplicationForm() {
         [documentType]: current[documentType] + 1
       }));
 
-      if (uploaded.content_type === "application/pdf") {
-        setSuccess(
-          remainingRequestedDocuments.length > 0
-            ? `${labelForDocument(uploaded.document_type)} uploaded. Still needed: ${remainingRequestedDocuments
-                .map(labelForDocument)
-                .join(", ")}.`
-            : `${labelForDocument(uploaded.document_type)} uploaded. PDF OCR is not supported yet, so continue by filling the application fields manually.`
-        );
-        return;
-      }
-
-      await extractOCR(uploaded, {
-        stayOnDocuments: remainingRequestedDocuments.length > 0,
-        remainingRequestedDocuments
-      });
+      setSuccess(
+        remainingRequestedDocuments.length > 0
+          ? `${labelForDocument(uploaded.document_type)} uploaded. Still needed: ${remainingRequestedDocuments
+              .map(labelForDocument)
+              .join(", ")}.`
+          : `${labelForDocument(uploaded.document_type)} uploaded. A loan officer will verify it manually.`
+      );
     } catch {
       setError("Could not reach the upload service. Please try again.");
     } finally {
       setIsLoading(false);
     }
-  }
-
-  async function extractOCR(
-    document: UploadedDocument,
-    options?: {
-      stayOnDocuments?: boolean;
-      remainingRequestedDocuments?: DocumentType[];
-    }
-  ) {
-    const response = await fetch(`/api/ocr/extract/${encodeURIComponent(document.id)}`, {
-      method: "POST"
-    });
-    const payload = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      setSuccess(
-        `${labelForDocument(document.document_type)} uploaded, but OCR could not run: ${
-          payload.error ?? "unsupported or unreadable file"
-        }.`
-      );
-      return;
-    }
-
-      const result = payload.ocr_result as OCRResult;
-      const suggestedData = defaultCorrectedData(document.document_type, result);
-      setOcrResults((current) => [result, ...current]);
-      setActiveOcrId(result.id);
-      setCorrectedData(suggestedData);
-      mergeCorrectedDataIntoForm(suggestedData);
-      if (!options?.stayOnDocuments) {
-        setStep("verify");
-      }
-      setSuccess(
-        options?.stayOnDocuments && options.remainingRequestedDocuments?.length
-          ? `${labelForDocument(document.document_type)} uploaded and OCR text extracted. Still needed: ${options.remainingRequestedDocuments
-              .map(labelForDocument)
-              .join(", ")}.`
-          : `${labelForDocument(document.document_type)} uploaded and OCR text extracted.`
-      );
-  }
-
-  async function verifyOCR() {
-    resetMessages();
-
-    if (!activeOcr) {
-      setError("Select an OCR result to verify.");
-      return;
-    }
-    if (activeOcr.verified_by_user) {
-      setStep("documents");
-      setSuccess("OCR data is already verified. You can upload another document.");
-      return;
-    }
-
-    const cleanedData = Object.fromEntries(
-      Object.entries(correctedData)
-        .map(([key, value]) => [key, value.trim()])
-        .filter(([, value]) => value)
-    );
-
-    setIsLoading(true);
-
-    try {
-      const response = await fetch(`/api/ocr/verify/${encodeURIComponent(activeOcr.id)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ corrected_data: cleanedData })
-      });
-      const payload = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        setError(payload.error ?? "Could not verify OCR result.");
-        return;
-      }
-
-      const verified = payload.ocr_result as OCRResult;
-      setOcrResults((current) =>
-        current.map((result) => (result.id === verified.id ? verified : result))
-      );
-      mergeCorrectedDataIntoForm(cleanedData);
-      setStep("documents");
-      setSuccess("OCR data verified. Upload another document or continue.");
-    } catch {
-      setError("Could not reach the OCR verification service.");
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-function mergeCorrectedDataIntoForm(data: Record<string, string>) {
-    setForm((current) => ({
-      ...current,
-      full_name:
-        data.full_name ||
-        data.employee_name ||
-        data.account_holder_name ||
-        current.full_name,
-      citizenship_number: data.citizenship_number || current.citizenship_number,
-      phone: data.phone || current.phone,
-      address: data.address || current.address,
-      monthly_income: numericText(data.monthly_income) || current.monthly_income
-    }));
   }
 
   function validateFinalForm() {
@@ -923,6 +773,14 @@ function mergeCorrectedDataIntoForm(data: Record<string, string>) {
               <p className="mt-2 text-sm leading-6 text-slate-600">
                 Application reference: <span className="font-semibold">{applicationId}</span>
               </p>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                A loan officer verifies your documents manually after you submit.
+              </p>
+              <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                Collateral-backed loans (above Rs 200,000) also require an{" "}
+                <span className="font-semibold">account statement</span> and{" "}
+                <span className="font-semibold">property papers</span> before submitting.
+              </p>
             </div>
             {documentRequest ? (
               <div className="alert-info">
@@ -1052,98 +910,6 @@ function mergeCorrectedDataIntoForm(data: Record<string, string>) {
         </section>
       ) : null}
 
-      {step === "verify" ? (
-        <section className="grid gap-6 lg:grid-cols-[300px_1fr]">
-          <aside className="grid content-start gap-3">
-            <h2 className="text-xl font-semibold text-slate-950">Verify OCR data</h2>
-            {ocrResults.map((result) => {
-              const document = uploadedDocuments.find((item) => item.id === result.document_id);
-              return (
-                <button
-                  className={`rounded-md border px-3 py-2 text-left text-sm transition ${
-                    activeOcrId === result.id
-                      ? "border-emerald-700 bg-emerald-50 text-emerald-900"
-                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                  }`}
-                  key={result.id}
-                  onClick={() => {
-                    setActiveOcrId(result.id);
-                    setCorrectedData(
-                      defaultCorrectedData(document?.document_type ?? "supporting_document", result)
-                    );
-                  }}
-                  type="button"
-                >
-                  <span className="font-semibold">
-                    {labelForDocument(document?.document_type ?? "supporting_document")}
-                  </span>
-                  <span className="mt-1 block text-xs">
-                    {result.verified_by_user ? "Verified" : "Needs checking"}
-                  </span>
-                </button>
-              );
-            })}
-            <button
-              className="btn-secondary"
-              onClick={() => setStep("details")}
-              type="button"
-            >
-              Continue to application details
-            </button>
-          </aside>
-
-          {activeOcr ? (
-            <div className="grid gap-5">
-              <article className="panel-pad bg-slate-50">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <h3 className="font-semibold text-slate-950">
-                    {labelForDocument(activeDocument?.document_type ?? "supporting_document")}
-                  </h3>
-                  <span className="rounded-md bg-white px-3 py-1 text-sm font-medium text-slate-700">
-                    Confidence: {activeOcr.confidence_score ?? "N/A"}
-                  </span>
-                </div>
-                <pre className="mt-4 max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-white p-4 text-sm leading-6 text-slate-700">
-                  {activeOcr.extracted_text}
-                </pre>
-              </article>
-              <article className="panel-pad">
-                <h3 className="font-semibold text-slate-950">Correct extracted fields</h3>
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  {Object.entries(correctedData).map(([key, value]) => (
-                    <label className="block" key={key}>
-                      <span className="text-sm font-medium text-slate-700">
-                        {formatLabel(key)}
-                      </span>
-                      <input
-                        className="mt-2 w-full px-3 py-2.5"
-                        onChange={(event) =>
-                          setCorrectedData((current) => ({
-                            ...current,
-                            [key]: event.target.value
-                          }))
-                        }
-                        value={value}
-                      />
-                    </label>
-                  ))}
-                </div>
-                <button
-                  className="btn-primary mt-5 px-5 py-3"
-                  disabled={isLoading || activeOcr.verified_by_user}
-                  onClick={verifyOCR}
-                  type="button"
-                >
-                  {activeOcr.verified_by_user ? "OCR data verified" : "Confirm OCR data"}
-                </button>
-              </article>
-            </div>
-          ) : (
-            <Alert tone="info" message="Upload an image document to extract OCR data." />
-          )}
-        </section>
-      ) : null}
-
       {step === "details" ? (
         <FinalDetailsForm
           eligibility={eligibility}
@@ -1199,9 +965,20 @@ function FinalDetailsForm({
     <section className="grid gap-5">
       <div>
         <h2 className="text-xl font-semibold text-slate-950">Complete application details</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          Your name, email, and phone are filled in from your account. Add the remaining details.
+        </p>
       </div>
       <div className="grid gap-5 lg:grid-cols-2">
         <TextField label="Full name" name="full_name" onChange={onChange} value={form.full_name} />
+        <label className="block">
+          <span className="text-sm font-medium text-slate-700">Email (from your account)</span>
+          <input
+            className="mt-2 w-full bg-slate-100 px-3 py-2.5 text-slate-600"
+            readOnly
+            value={form.email}
+          />
+        </label>
         <TextField
           label="Citizenship number"
           name="citizenship_number"
@@ -1395,7 +1172,6 @@ function StepTabs({
   const steps: Array<{ value: Step; label: string; needsDraft?: boolean }> = [
     { value: "loan", label: "Loan type" },
     { value: "documents", label: "Documents", needsDraft: true },
-    { value: "verify", label: "OCR check", needsDraft: true },
     { value: "details", label: "Application", needsDraft: true }
   ];
 
@@ -1544,8 +1320,6 @@ function applicationPayload(form: FormState) {
     employment_type: form.employment_type,
     existing_monthly_debt: Number(form.existing_monthly_debt),
     requested_loan_amount: Number(form.requested_loan_amount),
-    // Backend keeps loan_duration_months as the canonical installment count (N),
-    // derived here from the tenure + unit the customer entered.
     loan_duration_months: tenureToMonths(form.loan_tenure, form.tenure_unit),
     loan_tenure: Number(form.loan_tenure),
     tenure_unit: form.tenure_unit,
@@ -1559,136 +1333,10 @@ function applicationPayload(form: FormState) {
   };
 }
 
-function defaultCorrectedData(documentType: DocumentType, result: OCRResult) {
-  const existing = Object.fromEntries(
-    Object.entries(result.corrected_data ?? {}).map(([key, value]) => [
-      key,
-      value == null ? "" : String(value)
-    ])
-  );
-  const keysByDocumentType: Record<DocumentType, string[]> = {
-    citizenship_document: ["full_name", "citizenship_number", "address"],
-    salary_slip: ["employee_name", "monthly_income", "employer_name"],
-    bank_statement: ["account_holder_name", "bank_name", "account_number"],
-    valuation_report: ["document_date"],
-    recommendation_letter: ["document_date"],
-    supporting_document: ["document_date"]
-  };
-  const suggested = extractSuggestedData(documentType, result.extracted_text);
-
-  return Object.fromEntries(
-    keysByDocumentType[documentType].map((key) => [
-      key,
-      existing[key] ?? suggested[key] ?? ""
-    ])
-  );
-}
-
-function extractSuggestedData(
-  documentType: DocumentType,
-  extractedText: string
-): Record<string, string> {
-  const normalizedText = extractedText.replace(/\s+/g, " ").trim();
-  if (documentType === "salary_slip") {
-    const monthlyIncome =
-      matchFirst(
-        normalizedText,
-        /(?:NET\s*SALARY|NETSALARY|SALARY\s*\(GROSS\)\s*\/\s*PM|GROSS\s*SALARY)\s*(?:Rs\.?|NPR)?\s*([0-9][0-9,]*(?:\.\d+)?)/i
-      ) ||
-      matchFirst(
-        normalizedText,
-        /(?:Basic|SalaryHead)\s*(?:Rs\.?|NPR)?\s*([0-9][0-9,]*(?:\.\d+)?)/i
-      );
-    const employerName = matchFirst(
-      normalizedText,
-      /^(.{3,100}?)\s+Salary\s+Slip(?:\s+for)?\b/i
-    );
-    const employeeName = matchFirst(
-      normalizedText,
-      /Employee\s+Name\s*:?\s*([A-Z][A-Z .'-]+?)(?=\s+Date\b|\s+Designation\b|\s+Month\b|$)/i
-    );
-
-    return {
-      monthly_income: numericText(monthlyIncome),
-      employer_name: cleanName(employerName),
-      employee_name: cleanName(employeeName)
-    };
-  }
-
-  if (documentType === "bank_statement") {
-    const bankName =
-      matchFirst(normalizedText, /^(.{3,80}?Bank)(?=\s|$)/i) ||
-      matchFirst(normalizedText, /^(.{3,80}?Bank.{0,40}?)(?:\s+P\.?O\.?\s+Box|\s+[A-Z][a-z]+,|\s+Your)/i) ||
-      matchFirst(normalizedText, /(Royal\s+Bank\s+of\s+Canada)/i);
-    const accountNumber = matchFirst(
-      normalizedText,
-      /(?:account\s+number|account\s+no\.?)\s*:?\s*([0-9-]{5,})/i
-    );
-    const accountHolderName =
-      matchFirst(
-        normalizedText,
-        /Account\s+Name\s*[\[:\-]?\s*([A-Z][A-Z .'-]+?)(?=\s+Opening\s+Balance|\s+Account\s+Number|\s+Closing\s+Balance|$)/i
-      ) ||
-      matchFirst(
-        normalizedText,
-        /(?:Toronto,\s*ON\s+[A-Z0-9 ]+\s+|^)([A-Z][A-Z .'-]{2,60}?)\s+\d{2,}/i
-      );
-
-    return {
-      account_holder_name: cleanName(accountHolderName),
-      bank_name: cleanName(bankName),
-      account_number: accountNumber
-    };
-  }
-
-  if (documentType !== "citizenship_document") {
-    return {};
-  }
-
-  const citizenshipNumber = matchFirst(
-    normalizedText,
-    /Citizenship\s+Certificate\s+No\.?\s*:?\s*([A-Za-z0-9/-]+)/i
-  );
-  const fullName = matchFirst(
-    normalizedText,
-    /Full\s+Name\.?\s*:?\s*([A-Z][A-Z .'’-]+?)(?=\s+Date\s+of\s+Birth|\s+DOB|\s+Birth\s+Place|$)/i
-  );
-  const permanentAddress = matchFirst(
-    normalizedText,
-    /Permanent\s+Address\s*:?\s*(.+?)(?=\s+[A-Z]{2,}\s+Arar|\s+Government\s+of\s+Nepal|$)/i
-  );
-
-  return {
-    citizenship_number: citizenshipNumber,
-    full_name: fullName,
-    address: permanentAddress
-  };
-}
-
 function classifyAffordability(dtiRatio: number) {
   if (dtiRatio <= 35) return "Affordable";
   if (dtiRatio <= 50) return "Moderate";
   return "High Risk";
-}
-
-function matchFirst(text: string, pattern: RegExp) {
-  return text.match(pattern)?.[1]?.trim() ?? "";
-}
-
-function numericText(value: string | undefined) {
-  if (!value) {
-    return "";
-  }
-
-  return value.replace(/,/g, "").match(/\d+(?:\.\d+)?/)?.[0] ?? "";
-}
-
-function cleanName(value: string | undefined) {
-  if (!value) {
-    return "";
-  }
-
-  return value.replace(/\s+/g, " ").replace(/[|_]+/g, " ").trim();
 }
 
 function labelForDocument(documentType: DocumentType) {
@@ -1696,13 +1344,6 @@ function labelForDocument(documentType: DocumentType) {
     documentOptions.find((option) => option.value === documentType)?.label ??
     "Uploaded document"
   );
-}
-
-function formatLabel(value: string) {
-  return value
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 function valueToInput(value: number | string | null | undefined, fallback: string) {

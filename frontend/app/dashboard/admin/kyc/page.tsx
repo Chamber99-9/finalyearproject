@@ -1,10 +1,6 @@
-import { AppShell } from "@/components/AppShell";
-import { AdminKyc } from "@/components/AdminKyc";
+import { redirect } from "next/navigation";
 
+// KYC review moved to loan officers. Admins are redirected to the overview.
 export default function AdminKycPage() {
-  return (
-    <AppShell>
-      <AdminKyc />
-    </AppShell>
-  );
+  redirect("/dashboard/admin");
 }

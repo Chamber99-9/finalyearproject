@@ -95,7 +95,16 @@ async def simulate_payment(
     current_user: Annotated[dict, Depends(require_customer)],
     database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
 ) -> dict:
-    """Emulate the gateway confirming the payment (runs the real webhook path)."""
+    """Emulate the gateway confirming the payment (runs the real webhook path).
+
+    Dev/demo only: this settles a payment without real money, so it is disabled
+    outside development where a real rail (eSewa) must confirm the payment.
+    """
+    if get_settings().app_env.lower() != "development":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Payment simulation is disabled outside development.",
+        )
     applicant_id = get_authenticated_user_id(current_user)
     try:
         payment = await simulate_gateway_settlement(database, payment_id, applicant_id)

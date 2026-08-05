@@ -25,7 +25,9 @@ PAN = "pan"
 BANK_STATEMENT = "bank_statement"
 SALARY_OR_OFFER = "salary_or_offer"
 VALUATION_REPORT = "valuation_report"
+PROPERTY_PAPERS = "property_papers"
 RECOMMENDATION_LETTER = "recommendation_letter"
+OFFICIAL_DOCUMENT = "official_document"
 UNKNOWN = "unknown"
 
 HUMAN_LABEL: dict[str, str] = {
@@ -34,7 +36,9 @@ HUMAN_LABEL: dict[str, str] = {
     BANK_STATEMENT: "Bank statement",
     SALARY_OR_OFFER: "Salary / offer letter",
     VALUATION_REPORT: "Land / property valuation report",
+    PROPERTY_PAPERS: "Property papers (land ownership certificate)",
     RECOMMENDATION_LETTER: "Recommendation letter",
+    OFFICIAL_DOCUMENT: "Official / government document",
     UNKNOWN: "Unrecognised document",
 }
 
@@ -45,6 +49,7 @@ DOCUMENT_TYPE_TO_CLASS: dict[str, str | None] = {
     "salary_slip": SALARY_OR_OFFER,
     "bank_statement": BANK_STATEMENT,
     "valuation_report": VALUATION_REPORT,
+    "property_papers": PROPERTY_PAPERS,
     "recommendation_letter": RECOMMENDATION_LETTER,
     "supporting_document": None,
 }
@@ -173,6 +178,45 @@ SIGNATURES: dict[str, list[tuple[str, float]]] = {
         ("recommend", 1.0),
         ("recommended", 1.0),
     ],
+    PROPERTY_PAPERS: [
+        ("land ownership certificate", 3.5),
+        ("ownership certificate", 2.5),
+        ("जग्गा धनी प्रमाण पुर्जा", 3.5),
+        ("जग्गा धनी", 3.0),
+        ("लालपुर्जा", 3.5),
+        ("lalpurja", 3.0),
+        ("land revenue office", 2.5),
+        ("malpot", 2.5),
+        ("मालपोत", 2.5),
+        ("parcel", 1.5),
+        ("plot no", 1.5),
+        ("kitta no", 1.5),
+        ("kitta", 1.0),
+        ("ropani", 1.0),
+        ("aana", 1.0),
+        ("registration no", 1.0),
+    ],
+    OFFICIAL_DOCUMENT: [
+        ("patra sankhya", 3.0),
+        ("पत्र संख्या", 3.0),
+        ("chalani", 2.5),
+        ("चलानी", 2.5),
+        ("to whom it may concern", 2.0),
+        ("office of the", 2.0),
+        ("ref no", 1.5),
+        ("reference no", 1.5),
+        ("subject:", 1.5),
+        ("विषय", 1.5),
+        ("official seal", 2.0),
+        ("nagarpalika", 1.5),
+        ("gaunpalika", 1.5),
+        ("ward office", 1.5),
+        ("ministry of", 1.5),
+        ("मन्त्रालय", 1.5),
+        ("कार्यालय", 1.5),
+        ("government of nepal", 1.0),
+        ("नेपाल सरकार", 1.0),
+    ],
 }
 
 # Confidence = min(0.99, score / SATURATION). SATURATION is the score at which
@@ -244,6 +288,10 @@ def _extract_fields(text: str, doc_type: str) -> dict[str, str]:
         value = _value_after(text, ["fair market value", "market value", "distress value", "valuation"], _AMOUNT)
         if value:
             fields["valuation_amount"] = value
+    elif doc_type == PROPERTY_PAPERS:
+        kitta = _value_after(text, ["kitta no", "kitta", "plot no", "parcel no"], r"\d[\d\-/]{0,12}")
+        if kitta:
+            fields["kitta_number"] = kitta
     return fields
 
 

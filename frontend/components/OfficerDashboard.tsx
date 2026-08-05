@@ -75,6 +75,9 @@ export function OfficerDashboard() {
           <h1 className="mt-3 text-3xl font-bold text-slate-950 sm:text-4xl">
             Submitted applications
           </h1>
+          <Link className="btn-secondary mt-3 inline-flex px-4 py-2 text-sm" href="/dashboard/officer/kyc">
+            Review customer KYC
+          </Link>
         </div>
         <label className="w-full max-w-xs">
           <span className="text-sm font-medium text-slate-700">Status</span>

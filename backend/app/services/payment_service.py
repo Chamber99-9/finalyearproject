@@ -106,7 +106,26 @@ async def initiate_payment(
     document["_id"] = result.inserted_id
     payment_id = str(document["_id"])
 
-    if settings.payment_provider == "khalti":
+    if settings.payment_provider == "esewa":
+        from app.services.payment_gateways import esewa_build_form
+
+        base = return_url_base or settings.payment_return_url_base
+        # eSewa uses our payment id as the transaction_uuid so the status check
+        # can be correlated back to this intent.
+        form = esewa_build_form(
+            amount=amount,
+            transaction_uuid=payment_id,
+            success_url=f"{base}/payments/return",
+            failure_url=f"{base}/payments/return?status=failed",
+        )
+        updates = {
+            "provider": "esewa",
+            "provider_ref": payment_id,
+            "esewa_form": form,
+            "checkout_url": None,
+            "updated_at": datetime.now(UTC),
+        }
+    elif settings.payment_provider == "khalti":
         from app.services.payment_gateways import GatewayError, khalti_initiate
 
         base = return_url_base or settings.payment_return_url_base
@@ -194,9 +213,18 @@ async def verify_payment(
     if payment.get("status") == SUCCESS:
         return payment  # idempotent
 
-    from app.services.payment_gateways import khalti_lookup
+    # Confirm with the authoritative status API for whichever rail was used.
+    if payment.get("provider") == "esewa":
+        from app.services.payment_gateways import esewa_status_check
 
-    result = await khalti_lookup(provider_ref)
+        result = await esewa_status_check(
+            transaction_uuid=provider_ref,
+            total_amount=float(payment.get("amount") or 0),
+        )
+    else:
+        from app.services.payment_gateways import khalti_lookup
+
+        result = await khalti_lookup(provider_ref)
     if result["status"] == SUCCESS:
         return await _settle(database, payment)
 

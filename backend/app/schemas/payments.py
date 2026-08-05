@@ -14,6 +14,8 @@ class PaymentResponse(BaseModel):
     provider: str
     provider_ref: str
     checkout_url: str | None = None
+    # eSewa auto-submit form (action URL + signed fields) when provider=esewa.
+    esewa_form: dict | None = None
     amount_paid: float | None = None
     outstanding_after: float | None = None
     installments_paid_after: int | None = None

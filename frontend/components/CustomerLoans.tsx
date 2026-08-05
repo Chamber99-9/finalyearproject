@@ -52,9 +52,17 @@ export function CustomerLoans() {
         setError(initiatePayload.error ?? "Could not start the payment.");
         return;
       }
-      // Redirect to the gateway's checkout: the mock provider returns our
-      // internal checkout page; a real rail (Khalti) returns its hosted URL.
+      // Send the customer to the gateway. eSewa needs a signed form POST to its
+      // hosted page; Khalti returns a hosted URL; the mock provider returns our
+      // internal checkout page.
       const payment = initiatePayload.payment;
+      const esewaForm = payment?.esewa_form as
+        | { action: string; fields: Record<string, string> }
+        | undefined;
+      if (esewaForm?.action && esewaForm.fields) {
+        submitEsewaForm(esewaForm);
+        return;
+      }
       const checkoutUrl = payment?.checkout_url as string | undefined;
       if (checkoutUrl) {
         window.location.href = checkoutUrl;
@@ -141,6 +149,22 @@ export function CustomerLoans() {
       </div>
     </div>
   );
+}
+
+/** Build and submit a hidden form that POSTs the signed fields to eSewa. */
+function submitEsewaForm(esewaForm: { action: string; fields: Record<string, string> }) {
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = esewaForm.action;
+  for (const [name, value] of Object.entries(esewaForm.fields)) {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = name;
+    input.value = value;
+    form.appendChild(input);
+  }
+  document.body.appendChild(form);
+  form.submit();
 }
 
 function Fact({ label, value }: { label: string; value: string }) {

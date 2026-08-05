@@ -20,8 +20,12 @@ from app.schemas.application import (
 from app.services.loan_rate_service import effective_rate_value
 from app.services.loan_eligibility_service import max_loan_amount, requires_collateral
 from app.services.loan_account_service import create_loan_account_for_application
+from app.services.document_service import list_documents_for_application
 
 APPLICATIONS_COLLECTION = "loan_applications"
+
+# Collateral-backed loans must be supported by these uploaded documents.
+COLLATERAL_REQUIRED_DOCUMENTS = ("bank_statement", "property_papers")
 
 
 class ApplicationNotFoundError(Exception):
@@ -46,6 +50,14 @@ class LoanAmountExceedsCapError(Exception):
 
 class CollateralRequiredError(Exception):
     """A loan above the threshold (non-instant) needs collateral pledged."""
+
+
+class CollateralDocumentsMissingError(Exception):
+    """Collateral loans need an account statement and property papers uploaded."""
+
+    def __init__(self, missing: list[str]) -> None:
+        super().__init__("Collateral documents are missing.")
+        self.missing = missing
 
 
 def serialize_application(document: dict[str, Any]) -> dict[str, Any]:
@@ -315,6 +327,17 @@ async def submit_owned_application(
         collateral_value = application.get("collateral_value")
         if not collateral_value or float(collateral_value) <= 0:
             raise CollateralRequiredError
+        # Collateral loans must also be backed by an account statement and
+        # property (ownership) papers.
+        documents = await list_documents_for_application(database, application_id)
+        uploaded_types = {str(document.get("document_type")) for document in documents}
+        missing = [
+            document_type
+            for document_type in COLLATERAL_REQUIRED_DOCUMENTS
+            if document_type not in uploaded_types
+        ]
+        if missing:
+            raise CollateralDocumentsMissingError(missing)
 
     updated_application = await database[APPLICATIONS_COLLECTION].find_one_and_update(
         {
@@ -353,19 +376,37 @@ async def respond_to_counter_offer(
 
     now = datetime.now(UTC)
     new_status = ApplicationStatus.APPROVED if accepted else ApplicationStatus.REJECTED
+    updates: dict[str, Any] = {
+        "status": new_status.value,
+        "offer_status": "accepted" if accepted else "declined",
+        "offer_responded_at": now,
+        "updated_at": now,
+    }
+
+    if accepted:
+        # Accepting the counter offer makes the OFFERED amount the loan amount.
+        # Re-price the EMI on that amount (the frozen interest rate is unchanged)
+        # so the disbursed loan account matches what the customer agreed to —
+        # previously the original requested amount/EMI was disbursed by mistake.
+        offered_amount = application.get("offered_loan_amount")
+        if offered_amount is not None:
+            updates["requested_loan_amount"] = offered_amount
+            updates.update(
+                compute_emi_fields(
+                    requested_loan_amount=offered_amount,
+                    interest_rate_used=application.get("interest_rate_used"),
+                    loan_duration_months=application.get("loan_duration_months"),
+                    existing_monthly_debt=application.get("existing_monthly_debt"),
+                    monthly_income=application.get("monthly_income"),
+                )
+            )
+
     updated_application = await database[APPLICATIONS_COLLECTION].find_one_and_update(
         {
             "_id": application["_id"],
             "applicant_id": applicant_id,
         },
-        {
-            "$set": {
-                "status": new_status.value,
-                "offer_status": "accepted" if accepted else "declined",
-                "offer_responded_at": now,
-                "updated_at": now,
-            }
-        },
+        {"$set": updates},
         return_document=ReturnDocument.AFTER,
     )
 

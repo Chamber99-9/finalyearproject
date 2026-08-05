@@ -63,6 +63,10 @@ export type OCRResult = {
   application_id: string;
   extracted_text: string;
   confidence_score: number | null;
+  detected_document_type?: string | null;
+  detected_label?: string | null;
+  detection_confidence?: number | null;
+  type_match?: boolean | null;
   verified_by_user: boolean;
   corrected_data: Record<string, unknown>;
   created_at: string;

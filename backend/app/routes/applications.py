@@ -18,6 +18,7 @@ from app.schemas.application import (
 from app.schemas.document import DocumentResponse
 from app.schemas.ocr import OCRResultResponse
 from app.services.application_service import (
+    CollateralDocumentsMissingError,
     CollateralRequiredError,
     IncompleteApplicationError,
     LoanAmountExceedsCapError,
@@ -53,6 +54,7 @@ from app.services.notification_service import (
     create_notifications_for_role,
 )
 from app.services.ocr_service import (
+    extract_and_save_ocr_result,
     get_latest_ocr_result_for_document,
     serialize_ocr_result,
 )
@@ -76,6 +78,15 @@ def enforce_expensive_rate_limit(user_id: str, action: str) -> None:
         ) from error
 
 
+def require_verified_kyc(current_user: dict) -> None:
+    """Block loan requests until the customer's KYC is verified by an officer."""
+    if current_user.get("kyc_status") != "verified":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Complete KYC verification before requesting a loan.",
+        )
+
+
 @router.post(
     "",
     response_model=ApplicationResponse,
@@ -86,6 +97,7 @@ async def create_application(
     current_user: Annotated[dict, Depends(require_customer)],
     database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
 ) -> dict:
+    require_verified_kyc(current_user)
     applicant_id = get_authenticated_user_id(current_user)
     application = await create_draft_application(database, applicant_id, payload)
     public_application = serialize_application(application)
@@ -121,6 +133,7 @@ async def create_application_draft(
     current_user: Annotated[dict, Depends(require_customer)],
     database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
 ) -> dict:
+    require_verified_kyc(current_user)
     applicant_id = get_authenticated_user_id(current_user)
     application = await create_empty_draft_application(database, applicant_id, payload)
     return serialize_application(application)
@@ -187,6 +200,7 @@ async def submit_application(
     current_user: Annotated[dict, Depends(require_customer)],
     database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
 ) -> dict:
+    require_verified_kyc(current_user)
     applicant_id = get_authenticated_user_id(current_user)
     try:
         application = await submit_owned_application(database, application_id, applicant_id)
@@ -219,6 +233,19 @@ async def submit_application(
             detail=(
                 "Loans above 200,000 (except instant loans) require collateral. "
                 "Add collateral details before submitting."
+            ),
+        ) from error
+    except CollateralDocumentsMissingError as error:
+        readable = {
+            "bank_statement": "account statement",
+            "property_papers": "property papers",
+        }
+        needed = ", ".join(readable.get(item, item) for item in error.missing)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Collateral loans require these documents: {needed}. "
+                "Upload them before submitting."
             ),
         ) from error
 
@@ -402,6 +429,15 @@ async def upload_application_document(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Could not save document metadata.",
         ) from error
+
+    # Customers no longer run OCR themselves — document verification is manual.
+    # We still auto-extract text server-side (best-effort) purely so the officer
+    # review screen can show a "detected document type" hint. Any failure
+    # (PDFs, unreadable images, OCR not installed) is silently ignored.
+    try:
+        await extract_and_save_ocr_result(database=database, document=document)
+    except Exception:  # noqa: BLE001 - detection hint is best-effort only
+        pass
 
     public_document = serialize_document(document)
     try:

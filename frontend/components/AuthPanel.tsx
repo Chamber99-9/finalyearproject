@@ -34,6 +34,10 @@ export function AuthPanel({ mode }: AuthPanelProps) {
       return "Enter a valid email address.";
     }
 
+    if (isRegister && !/@gmail\.com$/i.test(normalizedEmail)) {
+      return "Registration requires a valid @gmail.com email address.";
+    }
+
     if (isRegister && phone.trim().length < 7) {
       return "Enter a valid phone number.";
     }
@@ -94,8 +98,9 @@ export function AuthPanel({ mode }: AuthPanelProps) {
         return;
       }
 
-      // MFA: backend emailed an OTP — switch to the code-entry step.
-      if (!isRegister && payload.mfa_required) {
+      // Registration (or an unverified/MFA login) emails an OTP — switch to the
+      // code-entry step to verify the email before the session is issued.
+      if (payload.verification_required || payload.mfa_required) {
         setOtpEmail(payload.email ?? email);
         setOtpRequired(true);
         return;
@@ -107,14 +112,7 @@ export function AuthPanel({ mode }: AuthPanelProps) {
         return;
       }
 
-      // A brand-new registration goes straight into the loan application flow
-      // (which is only reachable once authenticated). Sign-ins go to the
-      // role-based dashboard.
-      if (isRegister && user.role === "customer") {
-        router.push("/applications/new");
-      } else {
-        router.push(getDashboardPath(user.role));
-      }
+      router.push(getDashboardPath(user.role));
       router.refresh();
     } catch {
       setError("Could not reach the authentication service. Please try again.");
@@ -160,13 +158,14 @@ export function AuthPanel({ mode }: AuthPanelProps) {
     return (
       <div className="mx-auto grid min-h-[calc(100vh-73px)] max-w-md items-center px-5 py-10">
         <section className="panel-pad p-6">
-          <h2 className="text-2xl font-semibold text-slate-950">Enter your login code</h2>
+          <h2 className="text-2xl font-semibold text-slate-950">Verify your email</h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            We emailed a 6-digit code to {otpEmail}. It expires in a few minutes.
+            We emailed a 6-digit code to {otpEmail}. Enter it to confirm your email
+            and continue. It expires in a few minutes.
           </p>
           <form className="mt-6 space-y-4" onSubmit={verifyOtp}>
             <label className="block">
-              <span className="text-sm font-medium text-slate-700">Login code</span>
+              <span className="text-sm font-medium text-slate-700">Verification code</span>
               <input
                 className="mt-2 w-full px-3 py-2.5 tracking-widest"
                 inputMode="numeric"

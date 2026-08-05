@@ -225,16 +225,19 @@ def seed_user(
     full_name: str = "Test User",
     password: str = "StrongPass1!",
 ) -> dict[str, Any]:
-    return fake_database.seed(
-        "users",
-        create_user_document(
-            full_name=full_name,
-            email=email,
-            phone=phone,
-            password_hash=hash_password(password),
-            role=role,
-        ),
+    document = create_user_document(
+        full_name=full_name,
+        email=email,
+        phone=phone,
+        password_hash=hash_password(password),
+        role=role,
     )
+    # Seeded test users are pre-verified; seeded customers are KYC-verified so
+    # the loan-application flow is exercisable without a KYC step in each test.
+    document["email_verified"] = True
+    if role == UserRole.CUSTOMER:
+        document["kyc_status"] = "verified"
+    return fake_database.seed("users", document)
 
 
 def auth_headers_for_user(user: dict[str, Any]) -> dict[str, str]:

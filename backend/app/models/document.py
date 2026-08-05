@@ -10,6 +10,8 @@ class DocumentType(StrEnum):
     SALARY_SLIP = "salary_slip"
     BANK_STATEMENT = "bank_statement"
     VALUATION_REPORT = "valuation_report"
+    # Land/property ownership certificate (लालपुर्जा) pledged as collateral.
+    PROPERTY_PAPERS = "property_papers"
     RECOMMENDATION_LETTER = "recommendation_letter"
     SUPPORTING_DOCUMENT = "supporting_document"
 

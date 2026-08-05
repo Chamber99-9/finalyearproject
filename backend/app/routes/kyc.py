@@ -14,7 +14,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.auth.dependencies import (
     get_authenticated_user_id,
     require_customer,
-    require_officer_or_admin,
+    require_officer,
 )
 from app.database import get_database
 from app.schemas.kyc import KycResponse, KycReviewRequest, KycSubmitRequest
@@ -54,7 +54,7 @@ async def read_my_kyc(
 
 @router.get("", response_model=list[KycResponse])
 async def read_pending_kyc(
-    current_user: Annotated[dict, Depends(require_officer_or_admin)],
+    current_user: Annotated[dict, Depends(require_officer)],
     database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
 ) -> list[dict]:
     records = await list_pending_kyc(database)
@@ -65,7 +65,7 @@ async def read_pending_kyc(
 async def review_kyc_route(
     user_id: str,
     payload: KycReviewRequest,
-    current_user: Annotated[dict, Depends(require_officer_or_admin)],
+    current_user: Annotated[dict, Depends(require_officer)],
     database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
 ) -> dict:
     try:

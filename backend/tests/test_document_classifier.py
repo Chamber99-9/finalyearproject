@@ -9,7 +9,9 @@ a slot.
 from app.services.document_classifier import (
     BANK_STATEMENT,
     CITIZENSHIP,
+    OFFICIAL_DOCUMENT,
     PAN,
+    PROPERTY_PAPERS,
     SALARY_OR_OFFER,
     UNKNOWN,
     classify_document,
@@ -90,3 +92,34 @@ def test_pan_needs_keyword_not_just_digits():
     # Nine digits alone (no PAN wording) must not be classified as PAN.
     result = classify_document("random reference 123456789 with no other markers")
     assert result["detected_document_type"] != PAN
+
+
+PROPERTY_TEXT = (
+    "Government of Nepal Land Revenue Office Malpot Karyalaya Land Ownership Certificate "
+    "जग्गा धनी प्रमाण पुर्जा लालपुर्जा Owner Ram Bahadur Thapa Kitta No 245 Area 0-4-2-0 Ropani"
+)
+
+OFFICIAL_TEXT = (
+    "Government of Nepal Office of the Municipality Ref No 079/80-1421 Patra Sankhya "
+    "Chalani No 552 Subject: Verification To whom it may concern this is to certify "
+    "Official Seal Ward Office"
+)
+
+
+def test_detects_property_papers():
+    result = classify_document(PROPERTY_TEXT, expected_document_type="property_papers")
+    assert result["detected_document_type"] == PROPERTY_PAPERS
+    assert result["confidence"] >= 0.8
+    assert result["type_match"] is True
+
+
+def test_detects_official_document():
+    result = classify_document(OFFICIAL_TEXT)
+    assert result["detected_document_type"] == OFFICIAL_DOCUMENT
+    assert result["confidence"] >= 0.6
+
+
+def test_property_papers_not_confused_with_valuation():
+    # An ownership certificate should read as property papers, not a valuation report.
+    result = classify_document(PROPERTY_TEXT)
+    assert result["detected_document_type"] == PROPERTY_PAPERS

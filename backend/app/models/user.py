@@ -27,6 +27,8 @@ def create_user_document(
         "role": role.value,
         "is_blacklisted": False,
         "mfa_enabled": False,
+        # New accounts must confirm their email via OTP before activation.
+        "email_verified": False,
         "kyc_status": "not_started",
         "created_at": datetime.now(UTC),
     }

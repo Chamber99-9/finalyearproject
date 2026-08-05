@@ -16,6 +16,7 @@ import { KycPanel } from "@/components/KycPanel";
 export function CustomerDashboard() {
   const [applications, setApplications] = useState<LoanApplication[]>([]);
   const [customerName, setCustomerName] = useState("Customer");
+  const [kycStatus, setKycStatus] = useState<string>("not_started");
   const [isLoading, setIsLoading] = useState(true);
   const [respondingOfferId, setRespondingOfferId] = useState("");
   const [error, setError] = useState("");
@@ -36,6 +37,9 @@ export function CustomerDashboard() {
         const sessionPayload = await sessionResponse.json().catch(() => ({}));
         if (sessionResponse.ok && sessionPayload.user?.full_name) {
           setCustomerName(sessionPayload.user.full_name);
+        }
+        if (sessionResponse.ok && sessionPayload.user?.kyc_status) {
+          setKycStatus(sessionPayload.user.kyc_status);
         }
 
         const applicationsPayload = await applicationsResponse.json().catch(() => ({}));
@@ -126,12 +130,25 @@ export function CustomerDashboard() {
             documents for officer review.
           </p>
         </div>
-        <Link
-          className="btn-primary px-5 py-3"
-          href="/applications/new"
-        >
-          Start new loan application
-        </Link>
+        {kycStatus === "verified" ? (
+          <Link className="btn-primary px-5 py-3" href="/applications/new">
+            Start new loan application
+          </Link>
+        ) : (
+          <div className="text-right">
+            <button
+              className="btn-primary px-5 py-3 opacity-50"
+              disabled
+              title="Complete KYC verification first"
+              type="button"
+            >
+              Start new loan application
+            </button>
+            <p className="mt-2 text-xs font-medium text-amber-700">
+              Verify your KYC below before applying.
+            </p>
+          </div>
+        )}
       </div>
 
       {error ? (

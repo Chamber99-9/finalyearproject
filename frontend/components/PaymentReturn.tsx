@@ -2,9 +2,26 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Payment, Receipt } from "@/components/PaymentCheckout";
+
+/** Extract the gateway reference from the return URL (Khalti pidx or eSewa data). */
+function readProviderRef(params: URLSearchParams): string {
+  const direct = params.get("pidx") ?? params.get("provider_ref");
+  if (direct) return direct;
+  // eSewa redirects back with a base64-encoded JSON `data` payload.
+  const data = params.get("data");
+  if (data) {
+    try {
+      const decoded = JSON.parse(atob(data)) as { transaction_uuid?: string };
+      return decoded.transaction_uuid ?? "";
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
 
 /**
  * Landing page the gateway (Khalti) redirects back to. It reads the reference
@@ -13,7 +30,7 @@ import { Payment, Receipt } from "@/components/PaymentCheckout";
  */
 export function PaymentReturn() {
   const params = useSearchParams();
-  const providerRef = params.get("pidx") ?? params.get("provider_ref") ?? "";
+  const providerRef = useMemo(() => readProviderRef(params), [params]);
   const [payment, setPayment] = useState<Payment | null>(null);
   const [state, setState] = useState<"verifying" | "done" | "error">("verifying");
   const [error, setError] = useState("");

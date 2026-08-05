@@ -1,12 +1,37 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+
+import { API_BASE_URL, AUTH_COOKIE_NAME } from "@/app/api/auth/_utils";
 
 /**
  * Public landing page. Intentionally minimal — it does not expose any
  * application internals, module names, or activity. It only introduces the
  * brand and funnels visitors to log in (or create an account). Everything
  * beyond this lives behind authentication.
+ *
+ * Logged-in visitors are sent straight to their dashboard, so clicking the
+ * Sajilo Loan logo (which points here) never drops an authenticated user back
+ * onto the public page or appears to log them out.
  */
-export default function Home() {
+export default async function Home() {
+  const token = (await cookies()).get(AUTH_COOKIE_NAME)?.value;
+  let authenticated = false;
+  if (token) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store"
+      });
+      authenticated = response.ok;
+    } catch {
+      // Backend unreachable — fall through and show the public landing.
+    }
+  }
+  if (authenticated) {
+    redirect("/dashboard");
+  }
+
   return (
     <main className="min-h-screen bg-slate-100 text-slate-950">
       <header className="border-b border-slate-200 bg-white/90 backdrop-blur">
