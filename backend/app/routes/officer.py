@@ -9,9 +9,16 @@ from app.auth.dependencies import get_authenticated_user_id, require_officer
 from app.database import get_database
 from app.schemas.admin import BlacklistRequest
 from app.schemas.application import ApplicationResponse
+from app.schemas.payments import PaymentResponse
 from app.schemas.user import UserResponse
 from app.services.audit_service import create_audit_log
 from app.services.notification_service import create_notification
+from app.services.payment_service import (
+    PaymentNotFoundError,
+    confirm_payment,
+    list_pending_confirmations,
+    serialize_payment,
+)
 from app.services.user_service import serialize_user, set_user_blacklist
 from app.schemas.officer import (
     AdditionalDocumentRequestCreate,
@@ -69,6 +76,33 @@ async def officer_blacklist_user(
         ),
     )
     return serialize_user(updated)
+
+
+@router.get("/payments/pending", response_model=list[PaymentResponse])
+async def read_pending_payments(
+    current_user: Annotated[dict, Depends(require_officer)],
+    database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+) -> list[dict]:
+    """QR payments customers marked paid, awaiting confirmation of receipt."""
+    payments = await list_pending_confirmations(database)
+    return [serialize_payment(payment) for payment in payments]
+
+
+@router.post("/payments/{payment_id}/confirm", response_model=PaymentResponse)
+async def confirm_payment_route(
+    payment_id: str,
+    current_user: Annotated[dict, Depends(require_officer)],
+    database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+) -> dict:
+    """Confirm a scanned-QR payment was received and settle it against the loan."""
+    try:
+        payment = await confirm_payment(database, payment_id)
+    except PaymentNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Payment not found.",
+        ) from error
+    return serialize_payment(payment)
 
 
 @router.get("/applications", response_model=list[ApplicationResponse])

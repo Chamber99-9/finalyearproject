@@ -29,6 +29,7 @@ from app.services.payment_service import (
     get_payment_for_customer,
     initiate_payment,
     initiate_prepayment,
+    mark_payment_submitted,
     process_webhook,
     serialize_payment,
     simulate_gateway_settlement,
@@ -143,6 +144,24 @@ async def read_payment(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Payment not found.",
         )
+    return serialize_payment(payment)
+
+
+@payments_router.post("/{payment_id}/submitted", response_model=PaymentResponse)
+async def mark_payment_submitted_route(
+    payment_id: str,
+    current_user: Annotated[dict, Depends(require_customer)],
+    database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+) -> dict:
+    """Customer confirms they scanned the QR and paid; awaits officer confirmation."""
+    applicant_id = get_authenticated_user_id(current_user)
+    try:
+        payment = await mark_payment_submitted(database, payment_id, applicant_id)
+    except PaymentNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Payment not found.",
+        ) from error
     return serialize_payment(payment)
 
 

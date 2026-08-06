@@ -46,8 +46,15 @@ class Settings(BaseSettings):
     otp_expiry_minutes: int = 5
     otp_max_attempts: int = 5
     payment_webhook_secret: str = "change-me-payment-webhook-secret"
-    # Payment rail: "esewa" (eSewa ePay v2), "khalti" (KPG-2), or "mock" (demo).
-    payment_provider: str = "esewa"
+    # Payment rail: "qr" (scan a personal eSewa/Fonepay QR to pay the merchant,
+    # confirmed by an officer), "esewa" (ePay v2 API), "khalti" (KPG-2), "mock".
+    payment_provider: str = "qr"
+    # Personal QR destination shown at checkout (the account that receives money).
+    merchant_qr_name: str = "Sudin khanal"
+    merchant_qr_phone: str = "9847697806"
+    # Path/URL to the QR image. Drop your QR at frontend/public/esewa-qr.png, or
+    # set NEXT_PUBLIC_MERCHANT_QR_URL / this to a full image URL.
+    merchant_qr_url: str = "/esewa-qr.png"
     khalti_secret_key: str = ""
     # Sandbox default; live is https://khalti.com/api/v2
     khalti_base_url: str = "https://dev.khalti.com/api/v2"

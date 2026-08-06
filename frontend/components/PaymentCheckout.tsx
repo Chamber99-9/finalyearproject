@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { ESEWA_QR_DATA_URI } from "@/lib/esewaQr";
 import { formatMoney } from "@/lib/officer";
 
 export type Payment = {
@@ -12,6 +13,9 @@ export type Payment = {
   status: string;
   provider: string;
   provider_ref: string;
+  merchant_name?: string | null;
+  merchant_phone?: string | null;
+  qr_url?: string | null;
   amount_paid?: number | null;
   outstanding_after?: number | null;
   installments_paid_after?: number | null;
@@ -20,40 +24,17 @@ export type Payment = {
   settled_at?: string | null;
 };
 
-type WalletKey = "esewa" | "khalti";
-
 /**
- * Your real personal wallet QR codes. Drop the QR screenshots into
- * frontend/public as esewa-qr.png and khalti-qr.png (or override the paths with
- * the NEXT_PUBLIC_*_QR_URL env vars) and the customer scans the real thing.
- */
-const WALLETS: Record<WalletKey, { label: string; src: string; accent: string; note: string }> = {
-  esewa: {
-    label: "eSewa",
-    src: process.env.NEXT_PUBLIC_ESEWA_QR_URL || "/esewa-qr.png",
-    accent: "#60bb46",
-    note: "Open eSewa → Scan & Pay"
-  },
-  khalti: {
-    label: "Khalti",
-    src: process.env.NEXT_PUBLIC_KHALTI_QR_URL || "/khalti-qr.png",
-    accent: "#5c2d91",
-    note: "Open Khalti → Scan QR"
-  }
-};
-
-/**
- * Scan-to-pay checkout. The customer picks eSewa or Khalti, scans the real
- * personal QR, pays, then confirms — which runs the signed-webhook settlement on
- * the backend and shows a receipt.
+ * Scan-to-pay checkout. The customer scans the merchant's personal eSewa QR,
+ * pays that account directly, then taps "I've completed the payment" — which
+ * marks the payment awaiting officer confirmation. An officer confirms receipt
+ * and the EMI is applied.
  */
 export function PaymentCheckout({ paymentId }: { paymentId: string }) {
   const [payment, setPayment] = useState<Payment | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isPaying, setIsPaying] = useState(false);
   const [error, setError] = useState("");
-  // Which real wallet QR the customer is scanning.
-  const [wallet, setWallet] = useState<WalletKey>("esewa");
 
   useEffect(() => {
     async function load() {
@@ -71,16 +52,16 @@ export function PaymentCheckout({ paymentId }: { paymentId: string }) {
     load();
   }, [paymentId]);
 
-  async function pay() {
+  async function markPaid() {
     setIsPaying(true);
     setError("");
     try {
-      const response = await fetch(`/api/payments/${encodeURIComponent(paymentId)}/simulate`, {
+      const response = await fetch(`/api/payments/${encodeURIComponent(paymentId)}/submitted`, {
         method: "POST"
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.payment?.status !== "success") {
-        setError(data.error ?? "Payment could not be completed.");
+      if (!response.ok) {
+        setError(data.error ?? "Could not submit the payment.");
         return;
       }
       setPayment(data.payment);
@@ -105,92 +86,92 @@ export function PaymentCheckout({ paymentId }: { paymentId: string }) {
     );
   }
 
-  const settled = payment.status === "success";
-  const active = WALLETS[wallet];
+  if (payment.status === "success") {
+    return (
+      <section className="mx-auto max-w-lg px-5 py-10 sm:py-14">
+        <Receipt payment={payment} />
+      </section>
+    );
+  }
+
+  const awaiting = payment.status === "awaiting_confirmation";
+  // Use a full http(s)/data URL if configured; otherwise the embedded real QR.
+  const qrSrc =
+    (payment.qr_url && /^(https?:|data:)/.test(payment.qr_url) ? payment.qr_url : null) ||
+    process.env.NEXT_PUBLIC_MERCHANT_QR_URL ||
+    ESEWA_QR_DATA_URI;
 
   return (
     <section className="mx-auto max-w-lg px-5 py-10 sm:py-14">
-      {settled ? (
-        <Receipt payment={payment} />
-      ) : (
-        <div className="panel-pad p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-lg font-bold text-slate-950">
-              <span className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-700 text-xs text-white">
-                SL
-              </span>
-              Sajilo Pay
-            </div>
-            <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
-              Secure gateway
+      <div className="panel-pad p-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-lg font-bold text-slate-950">
+            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-700 text-xs text-white">
+              SL
             </span>
+            Sajilo Pay
           </div>
-
-          <div className="mt-5 rounded-lg bg-slate-50 p-4 text-center">
-            <p className="text-sm text-slate-600">Amount due</p>
-            <p className="mt-1 text-3xl font-bold text-slate-950">{formatMoney(payment.amount)}</p>
-            <p className="mt-1 text-xs text-slate-500">Ref {payment.provider_ref.slice(0, 12)}…</p>
-          </div>
-
-          <div className="mt-5 grid grid-cols-2 gap-2">
-            {(Object.keys(WALLETS) as WalletKey[]).map((key) => {
-              const w = WALLETS[key];
-              const selected = key === wallet;
-              return (
-                <button
-                  key={key}
-                  className={`rounded-lg border px-3 py-2.5 text-sm font-semibold transition ${
-                    selected
-                      ? "border-transparent text-white"
-                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                  }`}
-                  onClick={() => setWallet(key)}
-                  style={selected ? { backgroundColor: w.accent } : undefined}
-                  type="button"
-                >
-                  {w.label}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="mt-4 flex flex-col items-center gap-3">
-            <div
-              className="rounded-xl border-2 bg-white p-2"
-              style={{ borderColor: active.accent }}
-            >
-              <img
-                alt={`${active.label} payment QR`}
-                className="h-52 w-52 rounded-lg object-contain"
-                src={active.src}
-              />
-            </div>
-            <p className="text-sm font-medium text-slate-700">
-              {active.note} · pay {formatMoney(payment.amount)}
-            </p>
-            <p className="text-center text-xs text-slate-500">
-              After paying on {active.label}, tap below to confirm and get your receipt.
-            </p>
-          </div>
-
-          {error ? <p className="alert-error mt-4 px-3 py-2">{error}</p> : null}
-
-          <button
-            className="btn-primary mt-5 w-full px-5 py-3"
-            disabled={isPaying}
-            onClick={pay}
-            type="button"
-          >
-            {isPaying ? "Confirming payment..." : "I've completed the payment"}
-          </button>
-          <Link
-            className="mt-3 block text-center text-sm font-semibold text-slate-500 hover:text-slate-700"
-            href="/dashboard/customer"
-          >
-            Cancel
-          </Link>
+          <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+            eSewa QR
+          </span>
         </div>
-      )}
+
+        <div className="mt-5 rounded-lg bg-slate-50 p-4 text-center">
+          <p className="text-sm text-slate-600">Amount due</p>
+          <p className="mt-1 text-3xl font-bold text-slate-950">{formatMoney(payment.amount)}</p>
+          <p className="mt-1 text-xs text-slate-500">Ref {payment.provider_ref.slice(0, 12)}…</p>
+        </div>
+
+        {awaiting ? (
+          <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-5 text-center">
+            <p className="text-lg font-bold text-amber-900">Payment submitted</p>
+            <p className="mt-1 text-sm text-amber-800">
+              Waiting for the bank to confirm your payment was received. Your EMI updates once an
+              officer confirms it.
+            </p>
+            <Link className="btn-secondary mt-4 inline-flex px-4 py-2" href="/dashboard/customer">
+              Back to dashboard
+            </Link>
+          </div>
+        ) : (
+          <>
+            <div className="mt-4 flex flex-col items-center gap-3">
+              <div className="rounded-xl border-2 border-emerald-500 bg-white p-2">
+                <img
+                  alt="eSewa payment QR"
+                  className="h-56 w-56 rounded-lg object-contain"
+                  src={qrSrc}
+                />
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-semibold text-slate-800">
+                  {payment.merchant_name || "Merchant"} · {payment.merchant_phone || ""}
+                </p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Open eSewa → Scan &amp; Pay → send {formatMoney(payment.amount)} to this QR.
+                </p>
+              </div>
+            </div>
+
+            {error ? <p className="alert-error mt-4 px-3 py-2">{error}</p> : null}
+
+            <button
+              className="btn-primary mt-5 w-full px-5 py-3"
+              disabled={isPaying}
+              onClick={markPaid}
+              type="button"
+            >
+              {isPaying ? "Submitting..." : "I've completed the payment"}
+            </button>
+            <Link
+              className="mt-3 block text-center text-sm font-semibold text-slate-500 hover:text-slate-700"
+              href="/dashboard/customer"
+            >
+              Cancel
+            </Link>
+          </>
+        )}
+      </div>
     </section>
   );
 }

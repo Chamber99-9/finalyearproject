@@ -36,6 +36,8 @@ PAYMENTS_COLLECTION = "payments"
 PENDING = "pending"
 SUCCESS = "success"
 FAILED = "failed"
+# Customer scanned the QR and marked it paid; awaiting officer confirmation.
+AWAITING_CONFIRMATION = "awaiting_confirmation"
 
 EMI_KIND = "emi"
 PREPAYMENT_KIND = "prepayment"
@@ -130,7 +132,18 @@ async def initiate_payment(
     document["_id"] = result.inserted_id
     payment_id = str(document["_id"])
 
-    if settings.payment_provider == "esewa":
+    if settings.payment_provider == "qr":
+        # Scan-a-personal-QR flow: show the merchant's eSewa QR on our checkout
+        # page; the customer pays there and an officer confirms receipt.
+        updates = {
+            "provider": "esewa_qr",
+            "checkout_url": f"/payments/{payment_id}/checkout",
+            "merchant_name": settings.merchant_qr_name,
+            "merchant_phone": settings.merchant_qr_phone,
+            "qr_url": settings.merchant_qr_url,
+            "updated_at": datetime.now(UTC),
+        }
+    elif settings.payment_provider == "esewa":
         from app.services.payment_gateways import esewa_build_form
 
         base = return_url_base or settings.payment_return_url_base
@@ -207,6 +220,15 @@ async def _build_gateway_updates(
 ) -> dict[str, Any]:
     settings = get_settings()
     base = return_url_base or settings.payment_return_url_base
+    if settings.payment_provider == "qr":
+        return {
+            "provider": "esewa_qr",
+            "checkout_url": f"/payments/{payment_id}/checkout",
+            "merchant_name": settings.merchant_qr_name,
+            "merchant_phone": settings.merchant_qr_phone,
+            "qr_url": settings.merchant_qr_url,
+            "updated_at": datetime.now(UTC),
+        }
     if settings.payment_provider == "esewa":
         from app.services.payment_gateways import esewa_build_form
 
@@ -407,6 +429,51 @@ async def get_payment_for_customer(
     return await database[PAYMENTS_COLLECTION].find_one(
         {"_id": ObjectId(payment_id), "applicant_id": applicant_id}
     )
+
+
+async def mark_payment_submitted(
+    database: AsyncIOMotorDatabase,
+    payment_id: str,
+    applicant_id: str,
+) -> dict[str, Any]:
+    """Customer scanned the QR and paid — mark it awaiting officer confirmation."""
+    if not ObjectId.is_valid(payment_id):
+        raise PaymentNotFoundError
+    payment = await database[PAYMENTS_COLLECTION].find_one(
+        {"_id": ObjectId(payment_id), "applicant_id": applicant_id}
+    )
+    if payment is None:
+        raise PaymentNotFoundError
+    if payment.get("status") == SUCCESS:
+        return payment  # already settled
+    return await database[PAYMENTS_COLLECTION].find_one_and_update(
+        {"_id": payment["_id"]},
+        {"$set": {"status": AWAITING_CONFIRMATION, "updated_at": datetime.now(UTC)}},
+        return_document=ReturnDocument.AFTER,
+    )
+
+
+async def confirm_payment(
+    database: AsyncIOMotorDatabase,
+    payment_id: str,
+) -> dict[str, Any]:
+    """Officer/admin confirms a scanned QR payment was received — settle it."""
+    if not ObjectId.is_valid(payment_id):
+        raise PaymentNotFoundError
+    payment = await database[PAYMENTS_COLLECTION].find_one({"_id": ObjectId(payment_id)})
+    if payment is None:
+        raise PaymentNotFoundError
+    return await _settle(database, payment)
+
+
+async def list_pending_confirmations(
+    database: AsyncIOMotorDatabase,
+) -> list[dict[str, Any]]:
+    """QR payments the customer marked paid, awaiting officer confirmation."""
+    cursor = database[PAYMENTS_COLLECTION].find(
+        {"status": AWAITING_CONFIRMATION}
+    ).sort("updated_at", -1)
+    return [document async for document in cursor]
 
 
 async def process_webhook(

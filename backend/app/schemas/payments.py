@@ -16,6 +16,10 @@ class PaymentResponse(BaseModel):
     checkout_url: str | None = None
     # eSewa auto-submit form (action URL + signed fields) when provider=esewa.
     esewa_form: dict | None = None
+    # Personal-QR destination shown at checkout when provider=qr.
+    merchant_name: str | None = None
+    merchant_phone: str | None = None
+    qr_url: str | None = None
     # Advance-payment fields (present when kind=prepayment).
     kind: str | None = None
     prepay_principal: float | None = None
