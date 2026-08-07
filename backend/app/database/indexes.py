@@ -24,6 +24,14 @@ _INDEXES: list[tuple[str, str, bool]] = [
     ("application_documents", "application_id", False),
     ("ocr_results", "document_id", False),
     ("kyc_records", "user_id", True),
+    # CBS (Core Banking Simulator) — separate bounded context.
+    ("cbs_cif", "cif_no", True),
+    ("cbs_cif", "los_user_id", True),
+    ("cbs_deposit_accounts", "account_no", True),
+    ("cbs_deposit_accounts", "cif_no", False),
+    ("cbs_loan_accounts", "loan_account_no", True),
+    ("cbs_loan_accounts", "los_application_id", True),
+    ("cbs_loan_accounts", "cif_no", False),
 ]
 
 

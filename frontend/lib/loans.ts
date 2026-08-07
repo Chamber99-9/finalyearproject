@@ -22,6 +22,8 @@ export type Eligibility = {
   requested_amount: number;
   max_amount: number;
   within_cap: boolean;
+  min_amount: number;
+  meets_minimum: boolean;
   requires_collateral: boolean;
   collateral_threshold: number;
   instant_cap: number | null;

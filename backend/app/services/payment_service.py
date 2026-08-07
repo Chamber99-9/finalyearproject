@@ -38,6 +38,8 @@ SUCCESS = "success"
 FAILED = "failed"
 # Customer scanned the QR and marked it paid; awaiting officer confirmation.
 AWAITING_CONFIRMATION = "awaiting_confirmation"
+# Officer looked at the receipt and rejected it (wrong account / amount / no match).
+REJECTED = "rejected"
 
 EMI_KIND = "emi"
 PREPAYMENT_KIND = "prepayment"
@@ -85,6 +87,7 @@ async def initiate_payment(
     loan_id: str,
     applicant_id: str,
     *,
+    method: str | None = None,
     return_url_base: str | None = None,
     customer: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -105,6 +108,8 @@ async def initiate_payment(
         raise LoanAccountStatusError
 
     settings = get_settings()
+    # The customer may pick a method per payment; default to the configured rail.
+    provider = (method or settings.payment_provider or "mock").lower()
     now = await simulated_now(database)
     # EMI can only be paid within the window before the due date (or once overdue).
     due = loan.get("next_due_date")
@@ -132,7 +137,7 @@ async def initiate_payment(
     document["_id"] = result.inserted_id
     payment_id = str(document["_id"])
 
-    if settings.payment_provider == "qr":
+    if provider == "qr":
         # Scan-a-personal-QR flow: show the merchant's eSewa QR on our checkout
         # page; the customer pays there and an officer confirms receipt.
         updates = {
@@ -143,7 +148,7 @@ async def initiate_payment(
             "qr_url": settings.merchant_qr_url,
             "updated_at": datetime.now(UTC),
         }
-    elif settings.payment_provider == "esewa":
+    elif provider == "esewa":
         from app.services.payment_gateways import esewa_build_form
 
         base = return_url_base or settings.payment_return_url_base
@@ -162,7 +167,7 @@ async def initiate_payment(
             "checkout_url": None,
             "updated_at": datetime.now(UTC),
         }
-    elif settings.payment_provider == "khalti":
+    elif provider == "khalti":
         from app.services.payment_gateways import GatewayError, khalti_initiate
 
         base = return_url_base or settings.payment_return_url_base
@@ -217,10 +222,12 @@ async def _build_gateway_updates(
     purchase_name: str,
     return_url_base: str | None,
     customer: dict[str, Any] | None,
+    method: str | None = None,
 ) -> dict[str, Any]:
     settings = get_settings()
+    provider = (method or settings.payment_provider or "mock").lower()
     base = return_url_base or settings.payment_return_url_base
-    if settings.payment_provider == "qr":
+    if provider == "qr":
         return {
             "provider": "esewa_qr",
             "checkout_url": f"/payments/{payment_id}/checkout",
@@ -229,7 +236,7 @@ async def _build_gateway_updates(
             "qr_url": settings.merchant_qr_url,
             "updated_at": datetime.now(UTC),
         }
-    if settings.payment_provider == "esewa":
+    if provider == "esewa":
         from app.services.payment_gateways import esewa_build_form
 
         form = esewa_build_form(
@@ -245,7 +252,7 @@ async def _build_gateway_updates(
             "checkout_url": None,
             "updated_at": datetime.now(UTC),
         }
-    if settings.payment_provider == "khalti":
+    if provider == "khalti":
         from app.services.payment_gateways import khalti_initiate
 
         init = await khalti_initiate(
@@ -271,6 +278,7 @@ async def initiate_prepayment(
     applicant_id: str,
     principal_amount: float,
     *,
+    method: str | None = None,
     return_url_base: str | None = None,
     customer: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -326,17 +334,33 @@ async def initiate_prepayment(
         purchase_name=f"Advance payment for loan {loan_id}",
         return_url_base=return_url_base,
         customer=customer,
+        method=method,
     )
     await database[PAYMENTS_COLLECTION].update_one({"_id": document["_id"]}, {"$set": updates})
     document.update(updates)
     return document
 
 
-async def _settle(database: AsyncIOMotorDatabase, payment: dict[str, Any]) -> dict[str, Any]:
-    """Apply a successful payment to its loan (idempotent)."""
+async def _settle(
+    database: AsyncIOMotorDatabase,
+    payment: dict[str, Any],
+    *,
+    verified_amount: float | None = None,
+    extra_fields: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Apply a successful payment to its loan (idempotent).
+
+    ``verified_amount`` is the officer-reviewed deposit amount (from the bank
+    receipt). It only affects EMI payments — a deposit short of the monthly EMI
+    is applied as a partial payment (see ``record_payment``). Gateway-confirmed
+    payments (webhook/eSewa/Khalti) never pass this — the rail already collected
+    the exact amount, so the full EMI is credited as before.
+    """
     if payment.get("status") == SUCCESS:
         return payment  # already settled
 
+    is_partial = False
+    shortfall = 0.0
     try:
         if payment.get("kind") == PREPAYMENT_KIND:
             loan = await record_prepayment(
@@ -347,8 +371,13 @@ async def _settle(database: AsyncIOMotorDatabase, payment: dict[str, Any]) -> di
             )
         else:
             loan = await record_payment(
-                database, str(payment["loan_id"]), str(payment["applicant_id"])
+                database,
+                str(payment["loan_id"]),
+                str(payment["applicant_id"]),
+                verified_amount=verified_amount,
             )
+            is_partial = bool(loan.get("_is_partial"))
+            shortfall = float(loan.get("_shortfall") or 0)
         amount_paid = loan.get("_last_payment", payment.get("amount"))
     except (LoanAccountNotFoundError, LoanAccountStatusError):
         # Loan gone or already closed — mark failed rather than raising.
@@ -359,20 +388,24 @@ async def _settle(database: AsyncIOMotorDatabase, payment: dict[str, Any]) -> di
         )
 
     # Snapshot the loan after payment so the receipt is self-contained.
+    fields: dict[str, Any] = {
+        "status": SUCCESS,
+        "amount_paid": amount_paid,
+        "outstanding_after": loan.get("outstanding_balance"),
+        "installments_paid_after": loan.get("installments_paid"),
+        "installments_total": loan.get("installments_total"),
+        "next_due_date": loan.get("next_due_date"),
+        "is_partial": is_partial,
+        "shortfall": shortfall,
+        "settled_at": datetime.now(UTC),
+        "updated_at": datetime.now(UTC),
+    }
+    if extra_fields:
+        fields.update(extra_fields)
+
     return await database[PAYMENTS_COLLECTION].find_one_and_update(
         {"_id": payment["_id"]},
-        {
-            "$set": {
-                "status": SUCCESS,
-                "amount_paid": amount_paid,
-                "outstanding_after": loan.get("outstanding_balance"),
-                "installments_paid_after": loan.get("installments_paid"),
-                "installments_total": loan.get("installments_total"),
-                "next_due_date": loan.get("next_due_date"),
-                "settled_at": datetime.now(UTC),
-                "updated_at": datetime.now(UTC),
-            }
-        },
+        {"$set": fields},
         return_document=ReturnDocument.AFTER,
     )
 
@@ -435,8 +468,19 @@ async def mark_payment_submitted(
     database: AsyncIOMotorDatabase,
     payment_id: str,
     applicant_id: str,
+    *,
+    depositor_account_number: str,
+    amount_deposited: float,
+    remarks: str | None = None,
 ) -> dict[str, Any]:
-    """Customer scanned the QR and paid — mark it awaiting officer confirmation."""
+    """Customer scanned the QR and paid — attach their deposit receipt details and
+    mark the payment awaiting officer confirmation.
+
+    ``depositor_account_number`` and ``amount_deposited`` are what the customer
+    read off their own bank/eSewa receipt after paying the merchant QR. An
+    officer later cross-checks these against the bank statement before the EMI
+    is cut (see ``confirm_payment``).
+    """
     if not ObjectId.is_valid(payment_id):
         raise PaymentNotFoundError
     payment = await database[PAYMENTS_COLLECTION].find_one(
@@ -448,7 +492,15 @@ async def mark_payment_submitted(
         return payment  # already settled
     return await database[PAYMENTS_COLLECTION].find_one_and_update(
         {"_id": payment["_id"]},
-        {"$set": {"status": AWAITING_CONFIRMATION, "updated_at": datetime.now(UTC)}},
+        {
+            "$set": {
+                "status": AWAITING_CONFIRMATION,
+                "depositor_account_number": depositor_account_number.strip(),
+                "amount_deposited": round(float(amount_deposited), 2),
+                "customer_remarks": (remarks or "").strip() or None,
+                "updated_at": datetime.now(UTC),
+            }
+        },
         return_document=ReturnDocument.AFTER,
     )
 
@@ -456,14 +508,73 @@ async def mark_payment_submitted(
 async def confirm_payment(
     database: AsyncIOMotorDatabase,
     payment_id: str,
+    *,
+    officer_id: str | None = None,
+    verified_amount: float | None = None,
+    notes: str | None = None,
 ) -> dict[str, Any]:
-    """Officer/admin confirms a scanned QR payment was received — settle it."""
+    """Officer confirms a receipt after reviewing the account number and amount
+    deposited — settle it, cutting the EMI by what was actually verified.
+
+    ``verified_amount`` is what the officer read off the bank statement. If
+    omitted, the amount the customer declared on their receipt is used; if that
+    is also missing (legacy/simulated payments), the full EMI is assumed.
+    """
     if not ObjectId.is_valid(payment_id):
         raise PaymentNotFoundError
     payment = await database[PAYMENTS_COLLECTION].find_one({"_id": ObjectId(payment_id)})
     if payment is None:
         raise PaymentNotFoundError
-    return await _settle(database, payment)
+
+    amount = verified_amount
+    if amount is None:
+        amount = payment.get("amount_deposited")
+
+    extra_fields: dict[str, Any] = {
+        "verified_amount": round(float(amount), 2) if amount is not None else None,
+        "officer_notes": (notes or "").strip() or None,
+        "confirmed_by": officer_id,
+    }
+    return await _settle(
+        database,
+        payment,
+        verified_amount=float(amount) if amount is not None else None,
+        extra_fields=extra_fields,
+    )
+
+
+async def reject_payment(
+    database: AsyncIOMotorDatabase,
+    payment_id: str,
+    *,
+    officer_id: str | None = None,
+    reason: str,
+) -> dict[str, Any]:
+    """Officer reviewed the receipt and could not match it — reject it.
+
+    The customer sees the reason and can resubmit (e.g. wrong account number,
+    amount doesn't match any deposit on the statement).
+    """
+    if not ObjectId.is_valid(payment_id):
+        raise PaymentNotFoundError
+    payment = await database[PAYMENTS_COLLECTION].find_one({"_id": ObjectId(payment_id)})
+    if payment is None:
+        raise PaymentNotFoundError
+    if payment.get("status") == SUCCESS:
+        return payment  # already settled, nothing to reject
+
+    return await database[PAYMENTS_COLLECTION].find_one_and_update(
+        {"_id": payment["_id"]},
+        {
+            "$set": {
+                "status": REJECTED,
+                "officer_notes": reason.strip(),
+                "confirmed_by": officer_id,
+                "updated_at": datetime.now(UTC),
+            }
+        },
+        return_document=ReturnDocument.AFTER,
+    )
 
 
 async def list_pending_confirmations(

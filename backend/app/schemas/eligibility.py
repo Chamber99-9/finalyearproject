@@ -19,6 +19,8 @@ class EligibilityResponse(BaseModel):
     requested_amount: float
     max_amount: float
     within_cap: bool
+    min_amount: float = 0
+    meets_minimum: bool = True
     requires_collateral: bool
     collateral_threshold: float
     instant_cap: float | None = None

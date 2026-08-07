@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 
 import { EMICard, EMISummary } from "@/components/EMICard";
 import { EMIBreakdown } from "@/components/EMIBreakdown";
-import { Eligibility, LoanTypeInfo, PanCheck } from "@/lib/loans";
+import { Eligibility, LoanTypeInfo } from "@/lib/loans";
 import { formatMoney } from "@/lib/officer";
 
 type Step = "loan" | "documents" | "details" | "done";
@@ -167,8 +167,6 @@ export function LoanApplicationForm() {
   const [emiSummary, setEmiSummary] = useState<EMISummary | null>(null);
   const [loanTypes, setLoanTypes] = useState<LoanTypeInfo[]>([]);
   const [eligibility, setEligibility] = useState<Eligibility | null>(null);
-  const [panResult, setPanResult] = useState<PanCheck | null>(null);
-  const [panChecking, setPanChecking] = useState(false);
 
   const selectedLoanType = loanTypes.find((type) => type.loan_type === form.loan_type) ?? null;
 
@@ -204,33 +202,6 @@ export function LoanApplicationForm() {
       clearTimeout(timer);
     };
   }, [form.loan_type, form.requested_loan_amount, form.monthly_income]);
-
-  async function verifyPan() {
-    setPanResult(null);
-    if (!/^\d{9}$/.test(form.pan_number.trim())) {
-      setPanResult({
-        pan_number: form.pan_number,
-        valid_format: false,
-        tax_registered: false,
-        reason: "PAN must be exactly 9 digits."
-      });
-      return;
-    }
-    setPanChecking(true);
-    try {
-      const response = await fetch("/api/verification/pan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pan_number: form.pan_number.trim() })
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (response.ok) setPanResult(payload.pan ?? null);
-    } catch {
-      // Non-fatal.
-    } finally {
-      setPanChecking(false);
-    }
-  }
 
   useEffect(() => {
     async function loadLoanTypes() {
@@ -651,8 +622,10 @@ export function LoanApplicationForm() {
     if (!Number.isInteger(dependents) || dependents < 0) {
       return "Dependents must be a whole number.";
     }
-    if (form.pan_number.trim() && !/^\d{9}$/.test(form.pan_number.trim())) {
-      return "PAN number must be exactly 9 digits.";
+    if (eligibility && !eligibility.meets_minimum && eligibility.min_amount > 0) {
+      return `This loan type has a minimum of ${formatMoney(
+        eligibility.min_amount
+      )}. Increase the requested amount or choose an instant loan.`;
     }
     if (eligibility && !eligibility.within_cap) {
       return `Requested amount exceeds your eligibility cap of ${formatMoney(
@@ -660,7 +633,10 @@ export function LoanApplicationForm() {
       )}.`;
     }
     if (eligibility?.requires_collateral && Number(form.collateral_value) <= 0) {
-      return "This loan requires collateral. Enter the collateral value.";
+      return "This loan requires collateral. Enter the collateral type and value.";
+    }
+    if (eligibility?.requires_collateral && form.collateral_type.trim().length < 2) {
+      return "This loan requires collateral. Enter the collateral type.";
     }
     return "";
   }
@@ -934,9 +910,6 @@ export function LoanApplicationForm() {
           onChange={updateField}
           onSave={() => saveFinalDetails({ submit: false })}
           onSubmit={() => saveFinalDetails({ submit: true })}
-          onVerifyPan={verifyPan}
-          panChecking={panChecking}
-          panResult={panResult}
         />
       ) : null}
 
@@ -960,10 +933,7 @@ function FinalDetailsForm({
   isLoading,
   onChange,
   onSave,
-  onSubmit,
-  onVerifyPan,
-  panChecking,
-  panResult
+  onSubmit
 }: {
   eligibility: Eligibility | null;
   emiSummary: EMISummary | null;
@@ -972,9 +942,6 @@ function FinalDetailsForm({
   onChange: (name: FormField, value: string) => void;
   onSave: () => void;
   onSubmit: () => void;
-  onVerifyPan: () => void;
-  panChecking: boolean;
-  panResult: PanCheck | null;
 }) {
   return (
     <section className="grid gap-5">
@@ -1066,50 +1033,15 @@ function FinalDetailsForm({
           value={form.repayment_history}
         />
       </div>
-      <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <span className="text-sm font-semibold text-slate-800">Identity verification</span>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <label className="block flex-1">
-            <span className="text-sm font-medium text-slate-700">PAN number (9 digits)</span>
-            <input
-              className="mt-2 w-full px-3 py-2.5"
-              inputMode="numeric"
-              maxLength={9}
-              onChange={(event) => onChange("pan_number", event.target.value)}
-              placeholder="123456789"
-              value={form.pan_number}
-            />
-          </label>
-          <button
-            className="btn-secondary px-4 py-2.5"
-            disabled={panChecking}
-            onClick={onVerifyPan}
-            type="button"
-          >
-            {panChecking ? "Checking..." : "Verify PAN"}
-          </button>
-        </div>
-        {panResult ? (
-          <p
-            className={`text-sm ${
-              panResult.valid_format && panResult.tax_registered
-                ? "text-emerald-700"
-                : "text-amber-700"
-            }`}
-          >
-            {panResult.reason}
-          </p>
-        ) : null}
-      </div>
-
       {eligibility?.requires_collateral ? (
         <div className="grid gap-4 rounded-lg border border-amber-200 bg-amber-50 p-4 sm:grid-cols-2">
           <div className="sm:col-span-2">
             <span className="text-sm font-semibold text-amber-900">
-              Collateral required (loan above 2 lakh)
+              Collateral required
             </span>
             <p className="mt-1 text-xs text-amber-800">
-              Pledge collateral and upload a valuation report for officer review.
+              This loan type is secured — pledge collateral and upload an account
+              statement, property papers and a valuation report for officer review.
             </p>
           </div>
           <TextField

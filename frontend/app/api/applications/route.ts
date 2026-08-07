@@ -20,7 +20,8 @@ export async function GET(request: NextRequest) {
     backendResponse = await fetch(`${API_BASE_URL}/applications/my`, {
       headers: {
         Authorization: `Bearer ${token}`
-      }
+      },
+      cache: "no-store"
     });
   } catch {
     return errorResponse("Application service is unavailable.", 503);

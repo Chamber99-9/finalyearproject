@@ -156,6 +156,15 @@ async def login_user(
             ),
         )
 
+    # Email verification: unverified accounts (i.e. everyone who registered
+    # since this gate was added) must confirm their email before they can log
+    # in. Existing users without the field are treated as already verified.
+    # Email a fresh code and stop here. The client completes this the same
+    # way as MFA, via /auth/verify-otp.
+    if not user.get("is_email_verified", True):
+        await create_email_otp(database, user, purpose="verification")
+        return {"verification_required": True, "email": normalized_email}
+
     # Two-factor: if MFA is enabled, email a one-time code and stop here. The
     # client completes login via /auth/verify-otp.
     if user.get("mfa_enabled"):
@@ -218,6 +227,29 @@ async def verify_login_otp_route(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(error),
         ) from error
+
+    # First successful code after registration also satisfies the
+    # email-verification gate (same OTP mechanism, whichever purpose sent it).
+    if not user.get("is_email_verified", True):
+        await database["users"].update_one(
+            {"_id": _object_id(user_id)},
+            {"$set": {"is_email_verified": True}},
+        )
+        user["is_email_verified"] = True
+        try:
+            await create_audit_log(
+                database=database,
+                user_id=user_id,
+                action="email_verified",
+                entity_type="user",
+                entity_id=user_id,
+                details={"email": normalized_email},
+            )
+        except AuditLogStorageError as error:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Email verified, but audit log could not be created.",
+            ) from error
 
     public_user = serialize_user(user)
     return {

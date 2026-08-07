@@ -14,12 +14,14 @@ from typing import Any
 from app.services.document_classifier import classify_document
 
 # Documents that must be verified at upload time (denied if they don't match).
+# Only the three KYC documents have reliable signatures, so only they are hard-
+# gated. Collateral/supporting documents (valuation report, property papers,
+# recommendation letter) are still classified for the officer's hint but are
+# never blocked at upload — an officer verifies them manually.
 GATED_DOCUMENT_TYPES = {
     "citizenship_document",
     "salary_slip",
     "bank_statement",
-    "property_papers",
-    "valuation_report",
 }
 # Minimum detection confidence to accept a gated document.
 ACCEPT_MIN_CONFIDENCE = 0.5

@@ -79,7 +79,15 @@ async def verify_email_otp(
     if record is None:
         raise OTPError("No code was requested. Please try again.")
 
-    if record.get("expires_at") and record["expires_at"] < datetime.now(UTC):
+    # Motor/PyMongo return stored datetimes as timezone-naive (UTC values
+    # without tzinfo) by default. Comparing that directly against an
+    # aware `datetime.now(UTC)` raises TypeError, which was surfacing to
+    # users as a generic "Invalid or expired code" on every attempt.
+    expires_at = record.get("expires_at")
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+
+    if expires_at and expires_at < datetime.now(UTC):
         await database[EMAIL_OTPS_COLLECTION].delete_many({"user_id": user_id})
         raise OTPError("Your code has expired. Please request a new one.")
 

@@ -14,6 +14,7 @@ from app.auth.dependencies import get_authenticated_user_id, require_customer
 from app.config import get_settings
 from app.database import get_database
 from app.schemas.payments import (
+    PaymentReceiptSubmit,
     PaymentResponse,
     PaymentVerifyRequest,
     PaymentWebhookRequest,
@@ -45,6 +46,7 @@ async def initiate_loan_payment(
     loan_id: str,
     current_user: Annotated[dict, Depends(require_customer)],
     database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+    method: str | None = None,
 ) -> dict:
     applicant_id = get_authenticated_user_id(current_user)
     try:
@@ -52,6 +54,7 @@ async def initiate_loan_payment(
             database,
             loan_id,
             applicant_id,
+            method=method,
             return_url_base=get_settings().payment_return_url_base,
             customer={
                 "name": current_user.get("full_name"),
@@ -91,6 +94,7 @@ async def initiate_loan_prepayment(
     payload: PrepaymentRequest,
     current_user: Annotated[dict, Depends(require_customer)],
     database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+    method: str | None = None,
 ) -> dict:
     """Start an advance (lump-sum) payment of 1..outstanding, with fees."""
     applicant_id = get_authenticated_user_id(current_user)
@@ -100,6 +104,7 @@ async def initiate_loan_prepayment(
             loan_id,
             applicant_id,
             payload.amount,
+            method=method,
             return_url_base=get_settings().payment_return_url_base,
             customer={
                 "name": current_user.get("full_name"),
@@ -150,13 +155,22 @@ async def read_payment(
 @payments_router.post("/{payment_id}/submitted", response_model=PaymentResponse)
 async def mark_payment_submitted_route(
     payment_id: str,
+    payload: PaymentReceiptSubmit,
     current_user: Annotated[dict, Depends(require_customer)],
     database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
 ) -> dict:
-    """Customer confirms they scanned the QR and paid; awaits officer confirmation."""
+    """Customer confirms they paid, attaching their receipt (account number they
+    paid from + amount deposited); awaits officer confirmation."""
     applicant_id = get_authenticated_user_id(current_user)
     try:
-        payment = await mark_payment_submitted(database, payment_id, applicant_id)
+        payment = await mark_payment_submitted(
+            database,
+            payment_id,
+            applicant_id,
+            depositor_account_number=payload.depositor_account_number,
+            amount_deposited=payload.amount_deposited,
+            remarks=payload.remarks,
+        )
     except PaymentNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -1,0 +1,60 @@
+<mxfile host="app.diagrams.net" version="24.0.0">
+  <diagram name="Activity" id="activity">
+    <mxGraphModel dx="1000" dy="1200" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="900" pageHeight="1500" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="ac_start" value="Start" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="360" y="20" width="100" height="40" as="geometry" /></mxCell>
+        <mxCell id="ac_reg" value="Register &amp; login" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="340" y="80" width="140" height="40" as="geometry" /></mxCell>
+        <mxCell id="ac_kyc" value="Submit KYC" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="340" y="140" width="140" height="40" as="geometry" /></mxCell>
+        <mxCell id="ac_okyc" value="Officer reviews KYC" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="340" y="200" width="140" height="40" as="geometry" /></mxCell>
+        <mxCell id="ac_dkyc" value="KYC verified?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="350" y="260" width="120" height="70" as="geometry" /></mxCell>
+        <mxCell id="ac_ltype" value="Choose loan type" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="340" y="360" width="140" height="40" as="geometry" /></mxCell>
+        <mxCell id="ac_upload" value="Upload documents" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="340" y="420" width="140" height="40" as="geometry" /></mxCell>
+        <mxCell id="ac_ocr" value="OCR + classify" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="340" y="480" width="140" height="40" as="geometry" /></mxCell>
+        <mxCell id="ac_dmatch" value="Matches required type?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="345" y="540" width="130" height="80" as="geometry" /></mxCell>
+        <mxCell id="ac_deny" value="Deny: &quot;Doesnot look like required document&quot;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1"><mxGeometry x="580" y="550" width="180" height="60" as="geometry" /></mxCell>
+        <mxCell id="ac_fill" value="Auto-fill (citizenship no/name/address) &amp; complete details" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="330" y="650" width="160" height="50" as="geometry" /></mxCell>
+        <mxCell id="ac_submit" value="Submit application" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="340" y="720" width="140" height="40" as="geometry" /></mxCell>
+        <mxCell id="ac_dcap" value="Within salary cap?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="350" y="780" width="120" height="70" as="geometry" /></mxCell>
+        <mxCell id="ac_reject1" value="Reject - exceeds cap" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1"><mxGeometry x="580" y="785" width="150" height="50" as="geometry" /></mxCell>
+        <mxCell id="ac_dcoll" value="Collateral loan? docs uploaded?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="345" y="880" width="130" height="80" as="geometry" /></mxCell>
+        <mxCell id="ac_block" value="Block - collateral docs required" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1"><mxGeometry x="580" y="890" width="160" height="60" as="geometry" /></mxCell>
+        <mxCell id="ac_review" value="Officer reviews app / docs / risk / name-match" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="330" y="990" width="160" height="50" as="geometry" /></mxCell>
+        <mxCell id="ac_ddec" value="Decision?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="350" y="1060" width="120" height="70" as="geometry" /></mxCell>
+        <mxCell id="ac_rejected" value="Rejected" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1"><mxGeometry x="580" y="1065" width="120" height="50" as="geometry" /></mxCell>
+        <mxCell id="ac_approve" value="Approved (offered amount if counter)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="330" y="1160" width="160" height="50" as="geometry" /></mxCell>
+        <mxCell id="ac_disb" value="Create loan account (disbursed)" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="340" y="1230" width="140" height="40" as="geometry" /></mxCell>
+        <mxCell id="ac_pay" value="Pay EMI (QR/Khalti) or advance - within 7d window; settle" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="330" y="1290" width="160" height="50" as="geometry" /></mxCell>
+        <mxCell id="ac_dout" value="Outstanding &gt; 0?" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="350" y="1360" width="120" height="70" as="geometry" /></mxCell>
+        <mxCell id="ac_done" value="Loan completed / End" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="580" y="1370" width="140" height="50" as="geometry" /></mxCell>
+        <mxCell id="f0" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_start" target="ac_reg"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f1" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_reg" target="ac_kyc"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f2" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_kyc" target="ac_okyc"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f3" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_okyc" target="ac_dkyc"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f4" value="No" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_dkyc" target="ac_kyc"><mxGeometry relative="1" as="geometry"><mxPoint x="250" y="295" as="targetPoint" /></mxGeometry></mxCell>
+        <mxCell id="f5" value="Yes" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_dkyc" target="ac_ltype"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f6" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_ltype" target="ac_upload"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f7" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_upload" target="ac_ocr"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f8" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_ocr" target="ac_dmatch"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f9" value="No" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_dmatch" target="ac_deny"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f10" value="re-upload" style="endArrow=block;html=1;dashed=1;" edge="1" parent="1" source="ac_deny" target="ac_upload"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f11" value="Yes" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_dmatch" target="ac_fill"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f12" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_fill" target="ac_submit"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f13" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_submit" target="ac_dcap"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f14" value="No" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_dcap" target="ac_reject1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f15" value="Yes" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_dcap" target="ac_dcoll"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f16" value="No" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_dcoll" target="ac_block"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f17" value="OK" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_dcoll" target="ac_review"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f18" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_review" target="ac_ddec"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f19" value="Reject" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_ddec" target="ac_rejected"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f20" value="Approve / accepted offer" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_ddec" target="ac_approve"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f21" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_approve" target="ac_disb"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f22" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_disb" target="ac_pay"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f23" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_pay" target="ac_dout"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="f24" value="Yes" style="endArrow=block;html=1;dashed=1;" edge="1" parent="1" source="ac_dout" target="ac_pay"><mxGeometry relative="1" as="geometry"><mxPoint x="250" y="1395" as="targetPoint" /></mxGeometry></mxCell>
+        <mxCell id="f25" value="No" style="endArrow=block;html=1;" edge="1" parent="1" source="ac_dout" target="ac_done"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

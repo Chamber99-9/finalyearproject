@@ -38,15 +38,17 @@ export function CustomerLoans() {
     }
   }
 
-  async function payEmi(loanId: string) {
+  async function payEmi(loanId: string, method?: "qr" | "khalti" | "esewa") {
     setPayingId(loanId);
     setError("");
     setSuccess("");
     try {
-      // Create a payment intent, then send the customer to the gateway checkout
-      // (in production the intent returns the gateway's own checkout URL).
+      // Create a payment intent, then send the customer to the gateway. With no
+      // explicit method we use the server's configured rail (eSewa by default);
+      // passing "qr"/"khalti" overrides it (kept as fallbacks).
+      const query = method ? `?method=${method}` : "";
       const initiate = await fetch(
-        `/api/loans/${encodeURIComponent(loanId)}/payments/initiate`,
+        `/api/loans/${encodeURIComponent(loanId)}/payments/initiate${query}`,
         { method: "POST" }
       );
       const initiatePayload = await initiate.json().catch(() => ({}));

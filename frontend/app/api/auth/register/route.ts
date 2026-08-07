@@ -56,6 +56,16 @@ export async function POST(request: NextRequest) {
   }
 
   const loginPayload = await readBackendJson(loginResponse);
+
+  // New accounts are unverified: the backend emailed a code and expects the
+  // client to complete it via /api/auth/verify-otp, same as the MFA step.
+  if (loginResponse.ok && loginPayload.verification_required) {
+    return NextResponse.json(
+      { verification_required: true, email: loginPayload.email ?? email },
+      { status: 201 }
+    );
+  }
+
   if (!loginResponse.ok || !loginPayload.access_token || !loginPayload.user) {
     return errorResponse("Account created, but automatic login failed.", 502);
   }

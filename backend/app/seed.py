@@ -57,6 +57,9 @@ async def seed() -> None:
             password_hash=hash_password(password),
             role=role,
         )
+        # Demo accounts skip the email-verification gate so they work out of
+        # the box.
+        document["is_email_verified"] = True
         # The demo customer is pre-KYC-verified so the loan flow is usable out
         # of the box.
         if role == UserRole.CUSTOMER:
@@ -67,6 +70,7 @@ async def seed() -> None:
                 "password_hash": document["password_hash"],
                 "role": role.value,
                 "is_blacklisted": False,
+                "is_email_verified": True,
                 # Demo accounts never prompt for a login code.
                 "mfa_enabled": False,
             }

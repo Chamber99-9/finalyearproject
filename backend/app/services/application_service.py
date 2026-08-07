@@ -18,7 +18,11 @@ from app.schemas.application import (
     ApplicationUpdateRequest,
 )
 from app.services.loan_rate_service import effective_rate_value
-from app.services.loan_eligibility_service import max_loan_amount, requires_collateral
+from app.services.loan_eligibility_service import (
+    max_loan_amount,
+    minimum_loan_amount,
+    requires_collateral,
+)
 from app.services.loan_account_service import create_loan_account_for_application
 from app.services.document_service import list_documents_for_application
 
@@ -49,8 +53,16 @@ class LoanAmountExceedsCapError(Exception):
         self.max_amount = max_amount
 
 
+class LoanAmountBelowMinimumError(Exception):
+    """Requested amount is below the minimum for the loan type (non-instant)."""
+
+    def __init__(self, min_amount: float) -> None:
+        super().__init__("Requested amount is below the minimum for this loan type.")
+        self.min_amount = min_amount
+
+
 class CollateralRequiredError(Exception):
-    """A loan above the threshold (non-instant) needs collateral pledged."""
+    """Every non-instant loan needs collateral pledged."""
 
 
 class CollateralDocumentsMissingError(Exception):
@@ -321,6 +333,9 @@ async def submit_owned_application(
     loan_type = str(application.get("loan_type") or "personal")
     amount = float(application.get("requested_loan_amount") or 0)
     income = float(application.get("monthly_income") or 0)
+    minimum = minimum_loan_amount(loan_type)
+    if minimum > 0 and amount < minimum:
+        raise LoanAmountBelowMinimumError(minimum)
     cap = max_loan_amount(loan_type, income)
     if cap <= 0 or amount > cap:
         raise LoanAmountExceedsCapError(cap)

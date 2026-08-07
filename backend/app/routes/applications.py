@@ -21,6 +21,7 @@ from app.services.application_service import (
     CollateralDocumentsMissingError,
     CollateralRequiredError,
     IncompleteApplicationError,
+    LoanAmountBelowMinimumError,
     LoanAmountExceedsCapError,
     ApplicationNotFoundError,
     ApplicationStatusError,
@@ -227,6 +228,14 @@ async def submit_application(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Complete all required application fields before submitting.",
         ) from error
+    except LoanAmountBelowMinimumError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"This loan type has a minimum of {error.min_amount:,.0f}. "
+                "Increase the requested amount or choose an instant loan."
+            ),
+        ) from error
     except LoanAmountExceedsCapError as error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -239,8 +248,8 @@ async def submit_application(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                "Loans above 200,000 (except instant loans) require collateral. "
-                "Add collateral details before submitting."
+                "This loan type is secured and requires collateral (only instant "
+                "loans are exempt). Add collateral details before submitting."
             ),
         ) from error
     except CollateralDocumentsMissingError as error:

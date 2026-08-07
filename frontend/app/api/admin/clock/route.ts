@@ -13,7 +13,10 @@ export async function GET(request: NextRequest) {
   if (!token) return errorResponse("You must be logged in.", 401);
   let r: Response;
   try {
-    r = await fetch(`${API_BASE_URL}/admin/clock`, { headers: { Authorization: `Bearer ${token}` } });
+    r = await fetch(`${API_BASE_URL}/admin/clock`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store"
+    });
   } catch {
     return errorResponse("Service unavailable.", 503);
   }

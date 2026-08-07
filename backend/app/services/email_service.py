@@ -23,8 +23,15 @@ EMAILS_COLLECTION = "emails"
 
 def _send_via_smtp(to_email: str, subject: str, body: str) -> None:
     settings = get_settings()
+    # Gmail (and most providers) require the From to be the authenticated
+    # mailbox. Fall back to smtp_user when no real from-address is configured so
+    # the message is accepted instead of silently rejected/rewritten.
+    from_address = settings.email_from or settings.smtp_user
+    if from_address.endswith("sajiloloan.example") and settings.smtp_user:
+        from_address = settings.smtp_user
+
     message = EmailMessage()
-    message["From"] = settings.email_from
+    message["From"] = from_address
     message["To"] = to_email
     message["Subject"] = subject
     message.set_content(body)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -93,7 +94,10 @@ class FakeCollection:
         new_document: dict[str, Any] = {
             key: value for key, value in query.items() if not isinstance(value, dict)
         }
-        new_document["_id"] = ObjectId()
+        # Preserve a caller-supplied _id (e.g. CBS sequences key on a string _id);
+        # otherwise mint a fresh ObjectId like MongoDB would.
+        if not isinstance(new_document.get("_id"), (str, ObjectId)):
+            new_document["_id"] = ObjectId()
         _apply_update(new_document, update)
         self.documents.append(deepcopy(new_document))
         return deepcopy(new_document)
@@ -160,8 +164,12 @@ def _field_matches(actual: Any, expected: Any) -> bool:
 
 
 def _apply_update(document: dict[str, Any], update: dict[str, Any]) -> None:
-    if "$set" in update:
-        document.update(deepcopy(update["$set"]))
+    if any(key.startswith("$") for key in update):
+        if "$set" in update:
+            document.update(deepcopy(update["$set"]))
+        if "$inc" in update:
+            for key, amount in update["$inc"].items():
+                document[key] = (document.get(key) or 0) + amount
         return
     document.update(deepcopy(update))
 
@@ -185,6 +193,10 @@ def fake_database() -> FakeDatabase:
 @pytest.fixture
 def client(fake_database: FakeDatabase) -> Iterator[TestClient]:
     app.dependency_overrides[get_database] = lambda: fake_database
+    # Don't spawn the background EMI-reminder loop during tests.
+    from app.config import get_settings
+
+    get_settings().reminder_scheduler_enabled = False
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
@@ -232,11 +244,28 @@ def seed_user(
         password_hash=hash_password(password),
         role=role,
     )
+    # Seeded users are pre-verified so tests can log in directly without
+    # exercising the email-verification-OTP step.
+    document["is_email_verified"] = True
     # Seeded customers are KYC-verified so the loan-application flow is
     # exercisable without a KYC step in each test.
     if role == UserRole.CUSTOMER:
         document["kyc_status"] = "verified"
     return fake_database.seed("users", document)
+
+
+def get_latest_otp(fake_database: FakeDatabase, email: str) -> str:
+    """Read back the OTP most recently emailed to ``email`` (simulated send)."""
+    emails = [
+        document
+        for document in fake_database["emails"].documents
+        if document.get("to_email") == email
+    ]
+    assert emails, f"No email was sent to {email}"
+    body = emails[-1]["body"]
+    match = re.search(r"\bis (\d{4,10})\.", body)
+    assert match, f"Could not find an OTP in email body: {body!r}"
+    return match.group(1)
 
 
 def auth_headers_for_user(user: dict[str, Any]) -> dict[str, str]:

@@ -317,6 +317,29 @@ async def update_application_interest_rate(
     if updated_application is None:
         raise OfficerApplicationNotFoundError
 
+    # If this application was already approved and a loan account exists, the
+    # customer sees the loan account's EMI (not the application's). Recompute the
+    # loan at the new rate so the change actually reaches the customer portal.
+    loan = await database["loan_accounts"].find_one({"application_id": application_id})
+    if loan is not None and loan.get("status") in ("active", "overdue"):
+        new_emi = float(emi_fields.get("monthly_emi") or 0)
+        new_total = float(emi_fields.get("total_payment") or 0)
+        paid = int(loan.get("installments_paid") or 0)
+        new_outstanding = round(max(new_total - paid * new_emi, 0.0), 2)
+        loan_updates: dict[str, Any] = {
+            "interest_rate": float(payload.interest_rate),
+            "monthly_emi": new_emi,
+            "total_payment": new_total,
+            "total_interest": float(emi_fields.get("total_interest") or 0),
+            "outstanding_balance": new_outstanding,
+            "updated_at": datetime.now(UTC),
+        }
+        if new_outstanding <= 0:
+            loan_updates["status"] = "completed"
+        await database["loan_accounts"].update_one(
+            {"_id": loan["_id"]}, {"$set": loan_updates}
+        )
+
     try:
         await create_audit_log(
             database=database,

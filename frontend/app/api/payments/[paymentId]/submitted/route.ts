@@ -10,16 +10,22 @@ import {
 
 type RouteContext = { params: Promise<{ paymentId: string }> };
 
-/** Customer marks the QR payment as done; awaits officer confirmation. */
+/**
+ * Customer marks the QR payment as done, attaching their deposit receipt
+ * (account number they paid from + amount deposited); awaits officer
+ * confirmation.
+ */
 export async function POST(request: NextRequest, context: RouteContext) {
   const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
   if (!token) return errorResponse("You must be logged in.", 401);
   const { paymentId } = await context.params;
+  const body = await request.json().catch(() => ({}));
   let r: Response;
   try {
     r = await fetch(`${API_BASE_URL}/payments/${encodeURIComponent(paymentId)}/submitted`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` }
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body)
     });
   } catch {
     return errorResponse("Payment service is unavailable.", 503);

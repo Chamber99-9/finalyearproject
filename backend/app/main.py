@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.cbs.routes import router as cbs_router
 from app.config import get_settings
 from app.database import close_database_connection
 from app.routes.admin import router as admin_router
@@ -38,7 +39,22 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             await ensure_indexes(get_database())
         except Exception:  # noqa: BLE001 - startup must not fail on indexing
             pass
+
+    # Automatic EMI reminder emails (~7 days before each due date). Skipped in
+    # the test environment so the suite never spawns a background loop.
+    reminder_task = None
+    if settings.app_env.lower() != "test":
+        try:
+            from app.services.reminder_scheduler import start_reminder_scheduler
+
+            reminder_task = start_reminder_scheduler()
+        except Exception:  # noqa: BLE001 - startup must not fail on the scheduler
+            reminder_task = None
+
     yield
+
+    if reminder_task is not None:
+        reminder_task.cancel()
     close_database_connection()
 
 

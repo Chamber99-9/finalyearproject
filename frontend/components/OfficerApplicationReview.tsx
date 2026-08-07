@@ -266,22 +266,26 @@ export function OfficerApplicationReview({ applicationId }: OfficerApplicationRe
         </div>
         <div className="flex flex-wrap gap-3">
           <StatusBadge status={application.status} />
-          <button
-            className="rounded-md bg-emerald-700 px-4 py-2.5 font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-            disabled={isSaving}
-            onClick={() => updateStatus("approved")}
-            type="button"
-          >
-            Approve
-          </button>
-          <button
-            className="rounded-md bg-red-700 px-4 py-2.5 font-semibold text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-            disabled={isSaving}
-            onClick={() => updateStatus("rejected")}
-            type="button"
-          >
-            Reject
-          </button>
+          {application.status !== "approved" && application.status !== "rejected" ? (
+            <>
+              <button
+                className="rounded-md bg-emerald-700 px-4 py-2.5 font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                disabled={isSaving}
+                onClick={() => updateStatus("approved")}
+                type="button"
+              >
+                Approve
+              </button>
+              <button
+                className="rounded-md bg-red-700 px-4 py-2.5 font-semibold text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                disabled={isSaving}
+                onClick={() => updateStatus("rejected")}
+                type="button"
+              >
+                Reject
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
 

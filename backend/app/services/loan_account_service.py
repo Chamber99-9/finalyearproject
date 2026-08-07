@@ -82,8 +82,21 @@ async def record_payment(
     database: AsyncIOMotorDatabase,
     loan_id: str,
     applicant_id: str,
+    verified_amount: float | None = None,
 ) -> dict[str, Any]:
-    """Record one EMI payment: reduce the outstanding balance and advance the due date."""
+    """Record one EMI payment: reduce the outstanding balance and advance the due date.
+
+    ``verified_amount`` is the amount an officer verified was actually deposited
+    (from the bank receipt). When omitted, the full ``monthly_emi`` is assumed
+    (legacy/gateway-confirmed payments, where the rail already guarantees the
+    exact amount was collected).
+
+    A deposit that covers at least the monthly EMI clears one installment and
+    rolls the due date forward as before. A deposit that falls short is applied
+    as a **partial payment**: the outstanding balance drops by what was actually
+    received, but the installment count and due date do not move — the customer
+    still owes the shortfall before the EMI is considered paid.
+    """
     if not ObjectId.is_valid(loan_id):
         raise LoanAccountNotFoundError
 
@@ -97,20 +110,28 @@ async def record_payment(
 
     monthly_emi = float(loan.get("monthly_emi") or 0)
     outstanding = float(loan.get("outstanding_balance") or 0)
-    amount_paid = round(min(monthly_emi, outstanding), 2)
+    deposit = monthly_emi if verified_amount is None else max(float(verified_amount), 0.0)
+    amount_paid = round(min(deposit, outstanding), 2)
     new_outstanding = round(outstanding - amount_paid, 2)
-    installments_paid = int(loan.get("installments_paid", 0)) + 1
     installments_total = int(loan.get("installments_total", 0))
+
+    # A cent of rounding slack so a deposit equal to the EMI (float arithmetic)
+    # still counts as a full installment rather than a fractional shortfall.
+    covers_installment = amount_paid + 0.01 >= monthly_emi or new_outstanding <= 0
+    installments_paid = int(loan.get("installments_paid", 0)) + (1 if covers_installment else 0)
 
     updates: dict[str, Any] = {
         "outstanding_balance": max(new_outstanding, 0.0),
         "installments_paid": installments_paid,
-        "missed_installments": 0,
-        "next_due_date": add_one_month(loan["next_due_date"])
-        if isinstance(loan.get("next_due_date"), datetime)
-        else None,
         "updated_at": datetime.now(UTC),
     }
+    if covers_installment:
+        updates["missed_installments"] = 0
+        updates["next_due_date"] = (
+            add_one_month(loan["next_due_date"])
+            if isinstance(loan.get("next_due_date"), datetime)
+            else None
+        )
     if installments_paid >= installments_total or new_outstanding <= 0:
         updates["status"] = LoanAccountStatus.COMPLETED.value
         updates["outstanding_balance"] = 0.0
@@ -123,6 +144,8 @@ async def record_payment(
     if updated is None:
         raise LoanAccountNotFoundError
     updated["_last_payment"] = amount_paid
+    updated["_is_partial"] = not covers_installment
+    updated["_shortfall"] = round(max(monthly_emi - amount_paid, 0.0), 2) if not covers_installment else 0.0
     return updated
 
 
@@ -173,7 +196,13 @@ async def record_prepayment(
 
 
 async def process_due_reminders(database: AsyncIOMotorDatabase) -> dict[str, Any]:
-    """Notify + email customers whose EMI is due within the reminder window."""
+    """Email + notify customers whose EMI is due within the reminder window.
+
+    The window is ``reminder_days_before`` days (7 by default), so a customer is
+    reminded once their next EMI is 7 days away or nearer, and again for each new
+    installment. Idempotent per due date: the same installment is never reminded
+    twice, so running the billing job repeatedly does not spam the customer.
+    """
     days_before = get_settings().reminder_days_before
     now = await simulated_now(database)
     window_end = now + timedelta(days=days_before)
@@ -185,33 +214,54 @@ async def process_due_reminders(database: AsyncIOMotorDatabase) -> dict[str, Any
         due = loan.get("next_due_date")
         if not isinstance(due, datetime):
             continue
-        if now <= due <= window_end:
-            applicant_id = str(loan.get("applicant_id"))
-            emi = loan.get("monthly_emi")
-            message = (
-                f"Your EMI of {emi} is due on {due.date()}. "
-                f"Please pay within {days_before} days to avoid penalties."
+        # Mongo may return naive datetimes; compare on the same tz as `now`.
+        if due.tzinfo is None:
+            due = due.replace(tzinfo=UTC)
+
+        if not (now <= due <= window_end):
+            continue
+
+        # Only remind once per installment (keyed by the due date).
+        due_key = due.date().isoformat()
+        if loan.get("last_reminder_due_date") == due_key:
+            continue
+
+        applicant_id = str(loan.get("applicant_id"))
+        emi = loan.get("monthly_emi")
+        days_remaining = max((due.date() - now.date()).days, 0)
+        when = "today" if days_remaining == 0 else f"in {days_remaining} day(s)"
+        title = f"EMI due {when}"
+        message = (
+            f"Reminder: your EMI of NPR {emi} is due on {due.date()} ({when}). "
+            f"Please pay on time to avoid penalties and keep your account in good standing."
+        )
+        try:
+            await create_notification(
+                database=database,
+                user_id=applicant_id,
+                title=title,
+                message=message,
             )
-            try:
-                await create_notification(
-                    database=database,
-                    user_id=applicant_id,
-                    title="EMI due in 2 days",
-                    message=message,
-                )
-            except Exception:  # noqa: BLE001 - reminders are best-effort
-                pass
-            user = await database[USERS_COLLECTION].find_one(
-                {"_id": ObjectId(applicant_id)} if ObjectId.is_valid(applicant_id) else {}
+        except Exception:  # noqa: BLE001 - reminders are best-effort
+            pass
+
+        user = await database[USERS_COLLECTION].find_one(
+            {"_id": ObjectId(applicant_id)} if ObjectId.is_valid(applicant_id) else {}
+        )
+        if user and user.get("email"):
+            await send_email(
+                database=database,
+                to_email=str(user["email"]),
+                subject=f"Sajilo Loan — EMI due {when} ({due.date()})",
+                body=message,
             )
-            if user and user.get("email"):
-                await send_email(
-                    database=database,
-                    to_email=str(user["email"]),
-                    subject="Sajilo Loan — EMI due in 2 days",
-                    body=message,
-                )
-            reminded += 1
+
+        # Mark this installment as reminded so we don't email it again.
+        await database[LOAN_ACCOUNTS_COLLECTION].update_one(
+            {"_id": loan["_id"]},
+            {"$set": {"last_reminder_due_date": due_key}},
+        )
+        reminded += 1
     return {"reminded": reminded}
 
 

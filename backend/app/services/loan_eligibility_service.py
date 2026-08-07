@@ -1,10 +1,10 @@
 """Loan eligibility rules: salary-based caps and collateral requirements.
 
 Rules (all configurable defaults):
-  * Instant loan is capped at 50% of monthly salary and needs no collateral.
-  * Every other loan type has a maximum amount = income multiple x monthly salary.
-  * Any loan above the collateral threshold (Rs 200,000), except instant,
-    requires collateral to be pledged.
+  * Instant loan is capped at 50% of monthly salary, has no minimum, and needs
+    no collateral.
+  * Every other loan type has a maximum amount = income multiple x monthly salary,
+    a minimum amount of Rs 200,000, and ALWAYS requires collateral to be pledged.
 """
 
 from typing import Any
@@ -27,8 +27,10 @@ INCOME_MULTIPLES: dict[str, float] = {
     LoanType.OTHER.value: 12.0,
 }
 
-# Loans strictly above this amount require collateral (instant is exempt).
+# Kept for backwards compatibility / display: the figure the minimum is tied to.
 COLLATERAL_THRESHOLD = 200000.0
+# Every non-instant loan must be at least this amount.
+MINIMUM_LOAN_AMOUNT = 200000.0
 
 
 def income_multiple(loan_type: str) -> float:
@@ -42,11 +44,16 @@ def max_loan_amount(loan_type: str, monthly_income: float) -> float:
     return round(income_multiple(loan_type) * float(monthly_income), 2)
 
 
-def requires_collateral(loan_type: str, loan_amount: float) -> bool:
-    """Collateral is required above the threshold, except for instant loans."""
+def minimum_loan_amount(loan_type: str) -> float:
+    """Instant loans have no floor; every other loan starts at Rs 200,000."""
     if loan_type == LoanType.INSTANT.value:
-        return False
-    return float(loan_amount or 0) > COLLATERAL_THRESHOLD
+        return 0.0
+    return MINIMUM_LOAN_AMOUNT
+
+
+def requires_collateral(loan_type: str, loan_amount: float) -> bool:
+    """Collateral is mandatory for every loan except instant."""
+    return loan_type != LoanType.INSTANT.value
 
 
 def check_eligibility(
@@ -57,17 +64,21 @@ def check_eligibility(
     """Return an eligibility breakdown for a requested loan.
 
     {loan_type, monthly_income, requested_amount, max_amount, within_cap,
-     requires_collateral, collateral_threshold, instant_cap}
+     min_amount, meets_minimum, requires_collateral, collateral_threshold,
+     instant_cap}
     """
     cap = max_loan_amount(loan_type, monthly_income)
     requested = float(loan_amount or 0)
     is_instant = loan_type == LoanType.INSTANT.value
+    minimum = minimum_loan_amount(loan_type)
     return {
         "loan_type": loan_type,
         "monthly_income": float(monthly_income or 0),
         "requested_amount": requested,
         "max_amount": cap,
         "within_cap": requested <= cap if cap > 0 else False,
+        "min_amount": minimum,
+        "meets_minimum": requested >= minimum if requested > 0 else False,
         "requires_collateral": requires_collateral(loan_type, requested),
         "collateral_threshold": COLLATERAL_THRESHOLD,
         # 50% of monthly salary, shown for instant loans.

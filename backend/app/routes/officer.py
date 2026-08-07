@@ -9,7 +9,7 @@ from app.auth.dependencies import get_authenticated_user_id, require_officer
 from app.database import get_database
 from app.schemas.admin import BlacklistRequest
 from app.schemas.application import ApplicationResponse
-from app.schemas.payments import PaymentResponse
+from app.schemas.payments import PaymentConfirmRequest, PaymentRejectRequest, PaymentResponse
 from app.schemas.user import UserResponse
 from app.services.audit_service import create_audit_log
 from app.services.notification_service import create_notification
@@ -17,6 +17,7 @@ from app.services.payment_service import (
     PaymentNotFoundError,
     confirm_payment,
     list_pending_confirmations,
+    reject_payment,
     serialize_payment,
 )
 from app.services.user_service import serialize_user, set_user_blacklist
@@ -91,17 +92,92 @@ async def read_pending_payments(
 @router.post("/payments/{payment_id}/confirm", response_model=PaymentResponse)
 async def confirm_payment_route(
     payment_id: str,
+    payload: PaymentConfirmRequest,
     current_user: Annotated[dict, Depends(require_officer)],
     database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
 ) -> dict:
-    """Confirm a scanned-QR payment was received and settle it against the loan."""
+    """Officer has checked the account number and amount deposited against the
+    bank statement — confirm the receipt and cut the EMI by what was verified."""
+    officer_id = get_authenticated_user_id(current_user)
     try:
-        payment = await confirm_payment(database, payment_id)
+        payment = await confirm_payment(
+            database,
+            payment_id,
+            officer_id=officer_id,
+            verified_amount=payload.verified_amount,
+            notes=payload.notes,
+        )
     except PaymentNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Payment not found.",
         ) from error
+
+    await create_audit_log(
+        database=database,
+        user_id=officer_id,
+        action="payment_confirmed",
+        entity_type="payment",
+        entity_id=payment_id,
+        details={
+            "actor_role": "officer",
+            "verified_amount": payment.get("verified_amount"),
+            "is_partial": payment.get("is_partial"),
+        },
+    )
+    if payment.get("status") == "success":
+        amount_text = f"NPR {payment.get('amount_paid')}" if payment.get("amount_paid") is not None else "Your payment"
+        message = f"{amount_text} was verified and applied to your loan."
+        if payment.get("is_partial"):
+            message += (
+                f" This was less than the full EMI, so NPR {payment.get('shortfall')} is still due "
+                "to complete this installment."
+            )
+        await create_notification(
+            database=database,
+            user_id=str(payment.get("applicant_id")),
+            title="Payment confirmed",
+            message=message,
+        )
+    return serialize_payment(payment)
+
+
+@router.post("/payments/{payment_id}/reject", response_model=PaymentResponse)
+async def reject_payment_route(
+    payment_id: str,
+    payload: PaymentRejectRequest,
+    current_user: Annotated[dict, Depends(require_officer)],
+    database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+) -> dict:
+    """Officer could not match the receipt (wrong account / amount) — reject it."""
+    officer_id = get_authenticated_user_id(current_user)
+    try:
+        payment = await reject_payment(
+            database, payment_id, officer_id=officer_id, reason=payload.reason
+        )
+    except PaymentNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Payment not found.",
+        ) from error
+
+    await create_audit_log(
+        database=database,
+        user_id=officer_id,
+        action="payment_rejected",
+        entity_type="payment",
+        entity_id=payment_id,
+        details={"actor_role": "officer", "reason": payload.reason},
+    )
+    await create_notification(
+        database=database,
+        user_id=str(payment.get("applicant_id")),
+        title="Payment could not be verified",
+        message=(
+            f"Your receipt could not be matched to a deposit: {payload.reason} "
+            "Please check the details and resubmit."
+        ),
+    )
     return serialize_payment(payment)
 
 

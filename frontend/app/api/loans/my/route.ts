@@ -16,7 +16,8 @@ export async function GET(request: NextRequest) {
   let backendResponse: Response;
   try {
     backendResponse = await fetch(`${API_BASE_URL}/loans/my`, {
-      headers: { Authorization: `Bearer ${token}` }
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store"
     });
   } catch {
     return errorResponse("Loan service is unavailable.", 503);

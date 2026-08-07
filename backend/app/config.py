@@ -29,7 +29,11 @@ class Settings(BaseSettings):
     # if overdue) — not arbitrarily early.
     emi_payment_window_days: int = 7
     # Email reminder is sent this many days before the EMI due date.
-    reminder_days_before: int = 3
+    reminder_days_before: int = 7
+    # Background scheduler: automatically emails EMI reminders on an interval so
+    # customers are warned ~7 days before each due date without an admin action.
+    reminder_scheduler_enabled: bool = True
+    reminder_scheduler_interval_hours: int = 12
     # Advance (lump-sum) prepayment charges: a flat bank fee plus a percentage
     # of the amount being prepaid.
     prepayment_flat_fee: float = 500.0
@@ -46,9 +50,11 @@ class Settings(BaseSettings):
     otp_expiry_minutes: int = 5
     otp_max_attempts: int = 5
     payment_webhook_secret: str = "change-me-payment-webhook-secret"
-    # Payment rail: "qr" (scan a personal eSewa/Fonepay QR to pay the merchant,
-    # confirmed by an officer), "esewa" (ePay v2 API), "khalti" (KPG-2), "mock".
-    payment_provider: str = "qr"
+    # Payment rail: "esewa" (ePay v2 API — the default; pays via eSewa's hosted
+    # RC/UAT test gateway and settles only after the authoritative status check),
+    # "qr" (scan a personal eSewa/Fonepay QR, officer-confirmed — kept as a
+    # fallback), "khalti" (KPG-2), "mock".
+    payment_provider: str = "esewa"
     # Personal QR destination shown at checkout (the account that receives money).
     merchant_qr_name: str = "Sudin khanal"
     merchant_qr_phone: str = "9847697806"
@@ -67,6 +73,9 @@ class Settings(BaseSettings):
     # Where the gateway redirects the customer back to (your frontend origin).
     payment_return_url_base: str = "http://localhost:3000"
     payment_website_url: str = "http://localhost:3000"
+    # Core Banking Simulator (CBS): branch + currency used for account numbering.
+    cbs_branch_code: str = "001"
+    cbs_currency: str = "NPR"
     upload_dir: str = "uploads"
     max_upload_bytes: int = 10 * 1024 * 1024
     cors_allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
