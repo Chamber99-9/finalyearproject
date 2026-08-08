@@ -38,7 +38,13 @@ export function PaymentReturn() {
   useEffect(() => {
     if (!providerRef) {
       setState("error");
-      setError("Missing payment reference.");
+      // No reference means eSewa sent us to the failure/cancel URL — the payment
+      // did not complete, so no money was charged.
+      setError(
+        params.get("status") === "failed"
+          ? "Your eSewa payment was cancelled or did not complete — no amount was charged. Please try paying again."
+          : "Your payment could not be confirmed. If money was deducted it will be reflected shortly; otherwise please try again."
+      );
       return;
     }
     async function verify() {
