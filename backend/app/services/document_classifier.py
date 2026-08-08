@@ -179,6 +179,23 @@ SIGNATURES: dict[str, list[tuple[str, float]]] = {
         ("recommended", 1.0),
     ],
     PROPERTY_PAPERS: [
+        # Exact title/spellings on the Nepali land-ownership certificate
+        # (जग्गाधनी दर्ता प्रमाण पूर्जा), as OCR actually reads them.
+        ("जग्गाधनी दर्ता प्रमाण", 3.5),
+        ("जग्गाधनी दर्ता", 3.5),
+        ("प्रमाण पूर्जा", 3.0),
+        ("प्रमाण पुर्जा", 3.0),
+        ("जग्गाधनी", 3.0),
+        ("जग्गाधनीको नाम", 3.0),
+        ("भूमि व्यवस्थापन तथा अभिलेख विभाग", 3.0),
+        ("भूमि व्यवस्थापन", 2.5),
+        ("अभिलेख विभाग", 2.0),
+        ("भूमि व्यवस्था", 2.0),
+        ("lrims", 2.5),
+        ("क्षेत्रफल", 1.5),
+        ("कित्ता", 1.5),
+        ("रोपनी", 1.5),
+        # English + previously-supported variants
         ("land ownership certificate", 3.5),
         ("ownership certificate", 2.5),
         ("जग्गा धनी प्रमाण पुर्जा", 3.5),

@@ -50,11 +50,12 @@ class Settings(BaseSettings):
     otp_expiry_minutes: int = 5
     otp_max_attempts: int = 5
     payment_webhook_secret: str = "change-me-payment-webhook-secret"
-    # Payment rail: "esewa" (ePay v2 API — the default; pays via eSewa's hosted
-    # RC/UAT test gateway and settles only after the authoritative status check),
-    # "qr" (scan a personal eSewa/Fonepay QR, officer-confirmed — kept as a
-    # fallback), "khalti" (KPG-2), "mock".
-    payment_provider: str = "esewa"
+    # Payment rail: "qr" (scan a personal eSewa/Fonepay QR, then the customer
+    # submits a deposit receipt and an officer confirms it — the default because
+    # it completes reliably on localhost and emails a receipt on confirmation),
+    # "esewa" (ePay v2 hosted gateway — needs a public return URL, so it does not
+    # complete on plain localhost), "khalti" (KPG-2), "mock".
+    payment_provider: str = "qr"
     # Personal QR destination shown at checkout (the account that receives money).
     merchant_qr_name: str = "Sudin khanal"
     merchant_qr_phone: str = "9847697806"

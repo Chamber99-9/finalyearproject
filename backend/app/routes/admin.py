@@ -17,7 +17,9 @@ from app.schemas.admin import (
 )
 from app.schemas.application import ApplicationResponse
 from app.schemas.officer import InterestRateUpdateRequest
+from app.schemas.payments import PaymentResponse
 from app.schemas.user import UserResponse
+from app.services.payment_service import list_payments_for_applicant, serialize_payment
 from app.services.admin_service import (
     AdminUserNotFoundError,
     AdminRoleChangeNotAllowedError,
@@ -142,6 +144,18 @@ async def read_admin_audit_logs(
     return await list_admin_audit_logs(database)
 
 
+@router.get("/users/{user_id}/statement", response_model=list[PaymentResponse])
+async def read_user_statement(
+    user_id: str,
+    current_user: Annotated[dict, Depends(require_admin)],
+    database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+) -> list[dict]:
+    """A customer's full payment statement history (every EMI / advance payment,
+    with its receipt fields), newest first — admin only."""
+    payments = await list_payments_for_applicant(database, user_id)
+    return [serialize_payment(payment) for payment in payments]
+
+
 # --- Blacklist control (admin) ---------------------------------------------
 
 async def _apply_blacklist(
@@ -231,8 +245,14 @@ async def run_billing(
     """Run the daily billing jobs at the simulated date: EMI reminders (email +
     notification) and overdue processing (missed-installment counting +
     blacklisting). Lets you test time-based features without waiting a month."""
-    reminders = await process_due_reminders(database)
-    overdue = await process_overdue(database)
+    try:
+        reminders = await process_due_reminders(database)
+    except Exception:  # noqa: BLE001 - never fail the whole run on reminders
+        reminders = {"reminded": 0}
+    try:
+        overdue = await process_overdue(database)
+    except Exception:  # noqa: BLE001 - never fail the whole run on overdue
+        overdue = {"overdue": 0, "blacklisted": 0}
     return {
         "reminded": reminders.get("reminded", 0),
         "overdue": overdue.get("overdue", 0),

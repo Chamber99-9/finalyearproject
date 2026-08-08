@@ -24,6 +24,7 @@ from pymongo import ReturnDocument
 from app.auth.security import sign_payload, verify_signature
 from app.config import get_settings
 from app.services.clock_service import simulated_now
+from app.services.email_service import send_email
 from app.services.loan_account_service import (
     LoanAccountNotFoundError,
     LoanAccountStatusError,
@@ -403,11 +404,65 @@ async def _settle(
     if extra_fields:
         fields.update(extra_fields)
 
-    return await database[PAYMENTS_COLLECTION].find_one_and_update(
+    settled = await database[PAYMENTS_COLLECTION].find_one_and_update(
         {"_id": payment["_id"]},
         {"$set": fields},
         return_document=ReturnDocument.AFTER,
     )
+    # Email the customer a payment receipt. This runs exactly once per payment,
+    # because _settle short-circuits when the payment is already SUCCESS.
+    if settled is not None:
+        await _send_payment_receipt_email(database, settled)
+    return settled
+
+
+async def _send_payment_receipt_email(
+    database: AsyncIOMotorDatabase, payment: dict[str, Any]
+) -> None:
+    """Send a payment-confirmation email to the paying customer (best-effort)."""
+    applicant_id = str(payment.get("applicant_id") or "")
+    user = None
+    if ObjectId.is_valid(applicant_id):
+        user = await database["users"].find_one({"_id": ObjectId(applicant_id)})
+    email = (user or {}).get("email")
+    if not email:
+        return
+
+    is_prepayment = payment.get("kind") == PREPAYMENT_KIND
+    amount = payment.get("amount_paid")
+    amount_text = f"NPR {amount}" if amount is not None else f"NPR {payment.get('amount')}"
+    kind_text = "advance (lump-sum) payment" if is_prepayment else "EMI payment"
+
+    lines = [
+        f"Dear customer,\n",
+        f"We have received your {kind_text} of {amount_text}. Thank you.\n",
+        f"Transaction reference: {payment.get('provider_ref')}",
+        f"Method: {str(payment.get('provider') or 'n/a').replace('_', ' ')}",
+    ]
+    if payment.get("outstanding_after") is not None:
+        lines.append(f"Remaining balance: NPR {payment.get('outstanding_after')}")
+    if payment.get("installments_paid_after") is not None and payment.get("installments_total") is not None:
+        lines.append(
+            f"Installments paid: {payment.get('installments_paid_after')}/{payment.get('installments_total')}"
+        )
+    if payment.get("next_due_date") is not None:
+        lines.append(f"Next EMI due: {str(payment.get('next_due_date'))[:10]}")
+    if payment.get("is_partial"):
+        lines.append(
+            f"\nNote: this was a partial payment. NPR {payment.get('shortfall')} is still due to "
+            "complete this installment; the due date has not moved."
+        )
+    lines.append("\n— Sajilo Loan")
+
+    try:
+        await send_email(
+            database=database,
+            to_email=str(email),
+            subject=f"Sajilo Loan — payment received ({amount_text})",
+            body="\n".join(lines),
+        )
+    except Exception:  # noqa: BLE001 - receipts are best-effort, never block settlement
+        pass
 
 
 async def verify_payment(
@@ -462,6 +517,17 @@ async def get_payment_for_customer(
     return await database[PAYMENTS_COLLECTION].find_one(
         {"_id": ObjectId(payment_id), "applicant_id": applicant_id}
     )
+
+
+async def list_payments_for_applicant(
+    database: AsyncIOMotorDatabase,
+    applicant_id: str,
+) -> list[dict[str, Any]]:
+    """Every payment (statement history) for one customer, newest first."""
+    cursor = database[PAYMENTS_COLLECTION].find(
+        {"applicant_id": applicant_id}
+    ).sort("created_at", -1)
+    return [document async for document in cursor]
 
 
 async def mark_payment_submitted(

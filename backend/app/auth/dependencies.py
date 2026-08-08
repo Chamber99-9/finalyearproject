@@ -39,6 +39,15 @@ async def get_current_user(
             detail="User no longer exists",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    # A blacklisted user is signed out immediately: every authenticated request
+    # is rejected as unauthorized, so their existing session stops working on the
+    # very next action (the frontend then bounces them to the login page).
+    if user.get("is_blacklisted"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Your account has been blacklisted. Please contact the bank.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 

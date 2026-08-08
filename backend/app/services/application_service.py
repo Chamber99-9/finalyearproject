@@ -28,9 +28,10 @@ from app.services.document_service import list_documents_for_application
 
 APPLICATIONS_COLLECTION = "loan_applications"
 
-# Collateral-backed loans must be supported by these uploaded documents
-# (mandatory, not optional).
-COLLATERAL_REQUIRED_DOCUMENTS = ("bank_statement", "property_papers", "valuation_report")
+# Collateral-backed loans must be supported by the collateral document
+# (the land-ownership / property paper). This is the single mandatory collateral
+# document — the valuation report and others are no longer compulsory.
+COLLATERAL_REQUIRED_DOCUMENTS = ("property_papers",)
 
 
 class ApplicationNotFoundError(Exception):

@@ -254,16 +254,15 @@ async def submit_application(
         ) from error
     except CollateralDocumentsMissingError as error:
         readable = {
+            "property_papers": "collateral document (land ownership / property paper)",
             "bank_statement": "account statement",
-            "property_papers": "property papers",
             "valuation_report": "valuation report",
         }
         needed = ", ".join(readable.get(item, item) for item in error.missing)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"Collateral loans require these documents: {needed}. "
-                "Upload them before submitting."
+                f"A secured loan requires the {needed}. Upload it before submitting."
             ),
         ) from error
 

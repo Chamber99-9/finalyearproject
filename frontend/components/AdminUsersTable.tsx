@@ -190,6 +190,12 @@ export function AdminUsersTable() {
                           ? "Restore access"
                           : "Blacklist user"}
                       </button>
+                      <a
+                        className="mt-2 block text-xs font-semibold text-emerald-700 hover:text-emerald-800"
+                        href={`/dashboard/admin/users/${user.id}/statement`}
+                      >
+                        View statement
+                      </a>
                     </td>
                   </tr>
                 ))

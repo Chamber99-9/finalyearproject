@@ -249,12 +249,15 @@ async def process_due_reminders(database: AsyncIOMotorDatabase) -> dict[str, Any
             {"_id": ObjectId(applicant_id)} if ObjectId.is_valid(applicant_id) else {}
         )
         if user and user.get("email"):
-            await send_email(
-                database=database,
-                to_email=str(user["email"]),
-                subject=f"Sajilo Loan — EMI due {when} ({due.date()})",
-                body=message,
-            )
+            try:
+                await send_email(
+                    database=database,
+                    to_email=str(user["email"]),
+                    subject=f"Sajilo Loan — EMI due {when} ({due.date()})",
+                    body=message,
+                )
+            except Exception:  # noqa: BLE001 - a failed email must never crash billing
+                pass
 
         # Mark this installment as reminded so we don't email it again.
         await database[LOAN_ACCOUNTS_COLLECTION].update_one(

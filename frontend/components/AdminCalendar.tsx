@@ -97,7 +97,7 @@ export function AdminCalendar() {
           <h1 className="mt-3 text-3xl font-bold text-slate-950 sm:text-4xl">Testing calendar</h1>
           <p className="mt-3 max-w-3xl text-base leading-7 text-slate-700">
             Skip the simulated date forward, then run the billing jobs to test EMI email
-            reminders (3 days before due), overdue counting, and automatic blacklisting.
+            reminders (7 days before due), overdue counting, and automatic blacklisting.
           </p>
         </div>
         <AdminNav />

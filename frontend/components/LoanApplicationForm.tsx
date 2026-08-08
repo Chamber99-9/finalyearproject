@@ -64,8 +64,7 @@ const documentOptions: Array<{ value: DocumentType; label: string; required: boo
   { value: "citizenship_document", label: "Citizenship document", required: true },
   { value: "salary_slip", label: "Salary slip", required: true },
   { value: "bank_statement", label: "Bank statement", required: true },
-  { value: "valuation_report", label: "Collateral valuation report", required: false },
-  { value: "property_papers", label: "Property papers (ownership certificate)", required: false },
+  { value: "property_papers", label: "Collateral document (land ownership / property paper)", required: false },
   { value: "recommendation_letter", label: "Recommendation letter", required: false },
   { value: "supporting_document", label: "Optional supporting document", required: false }
 ];
@@ -767,10 +766,9 @@ export function LoanApplicationForm() {
                 A loan officer verifies your documents manually after you submit.
               </p>
               <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                Collateral-backed loans (above Rs 200,000) require an{" "}
-                <span className="font-semibold">account statement</span>,{" "}
-                <span className="font-semibold">property papers</span>, and a{" "}
-                <span className="font-semibold">valuation report</span> — all mandatory before submitting.
+                Secured loans (every type except instant) require the{" "}
+                <span className="font-semibold">collateral document</span>{" "}
+                (land ownership / property paper) — mandatory before submitting.
               </p>
             </div>
             {documentRequest ? (
@@ -1040,8 +1038,8 @@ function FinalDetailsForm({
               Collateral required
             </span>
             <p className="mt-1 text-xs text-amber-800">
-              This loan type is secured — pledge collateral and upload an account
-              statement, property papers and a valuation report for officer review.
+              This loan type is secured — pledge collateral and upload the
+              collateral document (land ownership / property paper) for officer review.
             </p>
           </div>
           <TextField
