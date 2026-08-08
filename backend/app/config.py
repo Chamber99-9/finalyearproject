@@ -61,8 +61,11 @@ class Settings(BaseSettings):
     # Path/URL to the QR image. Drop your QR at frontend/public/esewa-qr.png, or
     # set NEXT_PUBLIC_MERCHANT_QR_URL / this to a full image URL.
     merchant_qr_url: str = "/esewa-qr.png"
-    khalti_secret_key: str = ""
-    # Sandbox default; live is https://khalti.com/api/v2
+    # Khalti sandbox key (from the Khalti dev portal). Kept pointed at the
+    # sandbox base URL below so no real money can move; override via .env for
+    # anything real. Rotate this key if it was ever exposed.
+    khalti_secret_key: str = "9804980dff2e409685a93a74ca199e47"
+    # Sandbox only; live is https://khalti.com/api/v2 (do NOT point this key there).
     khalti_base_url: str = "https://dev.khalti.com/api/v2"
     # eSewa ePay v2. Defaults are eSewa's public sandbox test merchant, so the
     # flow works out of the box; replace with your live merchant credentials.
