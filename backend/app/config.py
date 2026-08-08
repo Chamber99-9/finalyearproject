@@ -50,22 +50,20 @@ class Settings(BaseSettings):
     otp_expiry_minutes: int = 5
     otp_max_attempts: int = 5
     payment_webhook_secret: str = "change-me-payment-webhook-secret"
-    # Payment rail: "esewa" (ePay v2 hosted UAT gateway — the default; the
-    # customer pays on eSewa's test page and is redirected back, where the server
-    # verifies the transaction and shows/emails the receipt), "qr" (scan a
-    # personal QR, officer-confirmed), "khalti" (KPG-2), "mock".
-    payment_provider: str = "esewa"
+    # Payment rail: "khalti" (KPG-2 sandbox — the default; the customer pays on
+    # Khalti's page and is redirected back, where the server verifies it and
+    # shows/emails the receipt), "esewa" (ePay v2), "qr", "mock".
+    payment_provider: str = "khalti"
     # Personal QR destination shown at checkout (the account that receives money).
     merchant_qr_name: str = "Sudin khanal"
     merchant_qr_phone: str = "9847697806"
     # Path/URL to the QR image. Drop your QR at frontend/public/esewa-qr.png, or
     # set NEXT_PUBLIC_MERCHANT_QR_URL / this to a full image URL.
     merchant_qr_url: str = "/esewa-qr.png"
-    # Khalti sandbox key (from the Khalti dev portal). Kept pointed at the
-    # sandbox base URL below so no real money can move; override via .env for
-    # anything real. Rotate this key if it was ever exposed.
+    # Khalti sandbox secret key (from the Khalti dev portal). Pointed at the
+    # sandbox base URL below, so no real money moves. Override via .env if needed.
     khalti_secret_key: str = "9804980dff2e409685a93a74ca199e47"
-    # Sandbox only; live is https://khalti.com/api/v2 (do NOT point this key there).
+    # Sandbox default; live is https://khalti.com/api/v2
     khalti_base_url: str = "https://dev.khalti.com/api/v2"
     # eSewa ePay v2. Defaults are eSewa's public sandbox test merchant, so the
     # flow works out of the box; replace with your live merchant credentials.
