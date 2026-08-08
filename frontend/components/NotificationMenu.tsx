@@ -10,6 +10,29 @@ type Notification = {
   created_at: string;
 };
 
+/**
+ * Show a notification's timestamp in Nepal Time (NPT, UTC+5:45). The backend
+ * stores created_at in UTC, so we format it in the Asia/Kathmandu timezone
+ * regardless of where the viewer's browser is.
+ */
+function formatNepalTime(iso: string): string {
+  try {
+    return (
+      new Date(iso).toLocaleString("en-GB", {
+        timeZone: "Asia/Kathmandu",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true
+      }) + " NPT"
+    );
+  } catch {
+    return new Date(iso).toLocaleString() + " NPT";
+  }
+}
+
 export function NotificationMenu() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -113,7 +136,7 @@ export function NotificationMenu() {
                     {notification.message}
                   </span>
                   <span className="mt-2 block text-xs text-slate-500">
-                    {new Date(notification.created_at).toLocaleString()}
+                    {formatNepalTime(notification.created_at)}
                   </span>
                 </button>
               ))

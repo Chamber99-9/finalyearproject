@@ -60,12 +60,25 @@ type DocumentRequest = {
   created_at: string;
 };
 
-const documentOptions: Array<{ value: DocumentType; label: string; required: boolean }> = [
+type DocumentOption = { value: DocumentType; label: string; required: boolean };
+
+const ALL_DOCUMENT_OPTIONS: DocumentOption[] = [
   { value: "citizenship_document", label: "Citizenship document", required: true },
   { value: "salary_slip", label: "Salary slip", required: true },
   { value: "bank_statement", label: "Bank statement", required: true },
   { value: "property_papers", label: "Collateral documents", required: true }
 ];
+
+/**
+ * Documents required for a loan type. Collateral is mandatory for every loan
+ * EXCEPT instant loans, so the collateral slot is dropped for instant.
+ */
+function documentOptionsFor(loanType: string): DocumentOption[] {
+  if (loanType === "instant") {
+    return ALL_DOCUMENT_OPTIONS.filter((option) => option.value !== "property_papers");
+  }
+  return ALL_DOCUMENT_OPTIONS;
+}
 
 const employmentOptions = [
   { value: "salaried", label: "Salaried" },
@@ -238,10 +251,12 @@ export function LoanApplicationForm() {
     loadAccount();
   }, []);
 
+  // Document slots depend on the loan type (instant needs no collateral).
+  const documentOptions = useMemo(() => documentOptionsFor(form.loan_type), [form.loan_type]);
   const missingRequiredDocuments = useMemo(() => {
     const uploadedTypes = new Set(uploadedDocuments.map((document) => document.document_type));
     return documentOptions.filter((option) => option.required && !uploadedTypes.has(option.value));
-  }, [uploadedDocuments]);
+  }, [uploadedDocuments, documentOptions]);
   const missingRequestedDocuments = useMemo(() => {
     if (!documentRequest) {
       return [];
@@ -400,6 +415,10 @@ export function LoanApplicationForm() {
   }
 
   function canLeaveDocumentStep() {
+    // All mandatory documents must be uploaded, plus any officer-requested ones.
+    if (missingRequiredDocuments.length > 0) {
+      return false;
+    }
     return !documentRequest || missingRequestedDocuments.length === 0;
   }
 
@@ -407,11 +426,12 @@ export function LoanApplicationForm() {
     resetMessages();
 
     if (!canLeaveDocumentStep()) {
-      setError(
-        `Upload all requested documents first. Still needed: ${missingRequestedDocuments
-          .map(labelForDocument)
-          .join(", ")}.`
-      );
+      const requiredLabels = missingRequiredDocuments.map((item) => item.label);
+      const requestedLabels = missingRequestedDocuments
+        .filter((type) => !missingRequiredDocuments.some((req) => req.value === type))
+        .map(labelForDocument);
+      const stillNeeded = [...requiredLabels, ...requestedLabels];
+      setError(`Upload all required documents first. Still needed: ${stillNeeded.join(", ")}.`);
       return;
     }
 
@@ -887,6 +907,7 @@ export function LoanApplicationForm() {
           </div>
 
           <DocumentChecklist
+            documentOptions={documentOptions}
             missingRequiredDocuments={missingRequiredDocuments}
             uploadedDocuments={uploadedDocuments}
           />
@@ -1109,9 +1130,11 @@ function StepTabs({
 }
 
 function DocumentChecklist({
+  documentOptions,
   missingRequiredDocuments,
   uploadedDocuments
 }: {
+  documentOptions: DocumentOption[];
   missingRequiredDocuments: Array<{ value: DocumentType; label: string; required: boolean }>;
   uploadedDocuments: UploadedDocument[];
 }) {
@@ -1253,7 +1276,7 @@ function classifyAffordability(dtiRatio: number) {
 
 function labelForDocument(documentType: DocumentType) {
   return (
-    documentOptions.find((option) => option.value === documentType)?.label ??
+    ALL_DOCUMENT_OPTIONS.find((option) => option.value === documentType)?.label ??
     "Uploaded document"
   );
 }
