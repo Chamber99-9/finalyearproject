@@ -49,6 +49,7 @@ export type LoanAccount = {
   installments_paid: number;
   installments_total: number;
   missed_installments: number;
+  penalty_due?: number;
   next_due_date: string | null;
   status: string;
 };

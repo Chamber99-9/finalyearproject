@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { AdminNav } from "@/components/AdminNav";
+import { LoanAccount } from "@/lib/loans";
 
 type Payment = {
   id: string;
@@ -46,18 +47,27 @@ function statusPill(status: string) {
 
 export function AdminUserStatement({ userId }: { userId: string }) {
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [loans, setLoans] = useState<LoanAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [openReceipt, setOpenReceipt] = useState<Payment | null>(null);
+  const [busyLoanId, setBusyLoanId] = useState("");
+  const [extendMonths, setExtendMonths] = useState<Record<string, string>>({});
+  const [restructureMsg, setRestructureMsg] = useState("");
 
   useEffect(() => {
     async function load() {
       setIsLoading(true);
       try {
-        const r = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/statement`);
-        const p = await r.json().catch(() => ({}));
-        if (r.ok) setPayments(p.payments ?? []);
+        const [statementRes, loansRes] = await Promise.all([
+          fetch(`/api/admin/users/${encodeURIComponent(userId)}/statement`),
+          fetch(`/api/admin/users/${encodeURIComponent(userId)}/loans`)
+        ]);
+        const p = await statementRes.json().catch(() => ({}));
+        if (statementRes.ok) setPayments(p.payments ?? []);
         else setError(p.error ?? "Could not load statement.");
+        const l = await loansRes.json().catch(() => ({}));
+        if (loansRes.ok) setLoans(l.loans ?? []);
       } catch {
         setError("Could not reach the service.");
       } finally {
@@ -66,6 +76,39 @@ export function AdminUserStatement({ userId }: { userId: string }) {
     }
     load();
   }, [userId]);
+
+  async function restructure(loanId: string, action: "extend" | "defer" | "waive_penalty") {
+    setRestructureMsg("");
+    setError("");
+    const body: { action: string; extend_months?: number } = { action };
+    if (action === "extend") {
+      const months = Number(extendMonths[loanId]);
+      if (!(months >= 1)) {
+        setError("Enter how many months to extend by.");
+        return;
+      }
+      body.extend_months = months;
+    }
+    setBusyLoanId(loanId);
+    try {
+      const r = await fetch(`/api/admin/loans/${encodeURIComponent(loanId)}/restructure`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const p = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setError(p.error ?? "Could not restructure the loan.");
+        return;
+      }
+      setLoans((current) => current.map((loan) => (loan.id === p.loan.id ? p.loan : loan)));
+      setRestructureMsg("Loan restructured. The customer has been notified.");
+    } catch {
+      setError("Could not reach the service.");
+    } finally {
+      setBusyLoanId("");
+    }
+  }
 
   const totals = useMemo(() => {
     const paid = payments
@@ -90,6 +133,62 @@ export function AdminUserStatement({ userId }: { userId: string }) {
       </div>
 
       {error ? <p className="alert-error mt-6">{error}</p> : null}
+      {restructureMsg ? <p className="alert-success mt-6">{restructureMsg}</p> : null}
+
+      {loans.filter((loan) => loan.status === "active").length > 0 ? (
+        <div className="mt-6">
+          <h2 className="text-lg font-semibold text-slate-950">Active loans — restructure</h2>
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            {loans
+              .filter((loan) => loan.status === "active")
+              .map((loan) => (
+                <article key={loan.id} className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <Detail label="Outstanding" value={money(loan.outstanding_balance)} />
+                    <Detail label="Monthly EMI" value={money(loan.monthly_emi)} />
+                    <Detail label="Installments" value={`${loan.installments_paid}/${loan.installments_total}`} />
+                    <Detail label="Late fees due" value={money(loan.penalty_due ?? 0)} />
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <input
+                      className="w-24 px-2 py-1.5 text-sm"
+                      inputMode="numeric"
+                      placeholder="+months"
+                      value={extendMonths[loan.id] ?? ""}
+                      onChange={(e) =>
+                        setExtendMonths((current) => ({ ...current, [loan.id]: e.target.value }))
+                      }
+                    />
+                    <button
+                      className="btn-secondary px-3 py-1.5 text-sm"
+                      disabled={busyLoanId === loan.id}
+                      onClick={() => restructure(loan.id, "extend")}
+                      type="button"
+                    >
+                      Extend tenure
+                    </button>
+                    <button
+                      className="btn-secondary px-3 py-1.5 text-sm"
+                      disabled={busyLoanId === loan.id}
+                      onClick={() => restructure(loan.id, "defer")}
+                      type="button"
+                    >
+                      Defer 1 EMI
+                    </button>
+                    <button
+                      className="btn-secondary px-3 py-1.5 text-sm"
+                      disabled={busyLoanId === loan.id || !(loan.penalty_due && loan.penalty_due > 0)}
+                      onClick={() => restructure(loan.id, "waive_penalty")}
+                      type="button"
+                    >
+                      Waive penalty
+                    </button>
+                  </div>
+                </article>
+              ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-6 table-shell overflow-x-auto">
         <table className="min-w-full text-sm">
@@ -185,5 +284,14 @@ export function AdminUserStatement({ userId }: { userId: string }) {
         </div>
       ) : null}
     </section>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs font-medium text-slate-500">{label}</p>
+      <p className="mt-0.5 font-semibold text-slate-950">{value}</p>
+    </div>
   );
 }

@@ -61,6 +61,9 @@ def create_loan_account_document(
         "installments_paid": 0,
         "installments_total": int(tenure_months),
         "missed_installments": 0,
+        # Accrued late fees on overdue installments; cleared when the customer
+        # pays (the fee is charged on top of the EMI) or waived by an officer.
+        "penalty_due": 0.0,
         "next_due_date": next_due_date(),
         "status": LoanAccountStatus.ACTIVE.value,
         "created_at": now,

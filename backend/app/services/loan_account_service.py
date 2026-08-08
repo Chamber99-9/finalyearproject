@@ -16,6 +16,7 @@ from app.models.loan_account import (
 )
 from app.services.clock_service import simulated_now
 from app.services.email_service import send_email
+from app.services.emi_service import build_amortization_schedule
 from app.services.notification_service import create_notification
 
 LOAN_ACCOUNTS_COLLECTION = "loan_accounts"
@@ -28,6 +29,10 @@ class LoanAccountNotFoundError(Exception):
 
 class LoanAccountStatusError(Exception):
     pass
+
+
+class RestructureError(Exception):
+    """Invalid loan-restructure request (bad action or parameters)."""
 
 
 def serialize_loan_account(document: dict[str, Any]) -> dict[str, Any]:
@@ -76,6 +81,115 @@ async def list_customer_loans(
         {"applicant_id": applicant_id}
     ).sort("created_at", -1)
     return [document async for document in cursor]
+
+
+async def get_loan_schedule(
+    database: AsyncIOMotorDatabase,
+    loan_id: str,
+    applicant_id: str | None = None,
+) -> dict[str, Any]:
+    """Return a loan's amortization schedule (per-installment principal/interest).
+
+    Built from the loan's original principal, rate and tenure — the agreed
+    repayment plan. ``applicant_id`` scopes it to the owner when provided (the
+    customer view); omit it for officer/admin access.
+    """
+    if not ObjectId.is_valid(loan_id):
+        raise LoanAccountNotFoundError
+    query: dict[str, Any] = {"_id": ObjectId(loan_id)}
+    if applicant_id is not None:
+        query["applicant_id"] = applicant_id
+    loan = await database[LOAN_ACCOUNTS_COLLECTION].find_one(query)
+    if loan is None:
+        raise LoanAccountNotFoundError
+
+    schedule = build_amortization_schedule(
+        float(loan.get("principal") or 0),
+        float(loan.get("interest_rate") or 0),
+        int(loan.get("tenure_months") or 0),
+        "months",
+    )
+    return {"loan": serialize_loan_account(loan), "schedule": schedule}
+
+
+async def restructure_loan(
+    database: AsyncIOMotorDatabase,
+    loan_id: str,
+    *,
+    action: str,
+    extend_months: int = 0,
+) -> dict[str, Any]:
+    """Officer/admin loan restructuring.
+
+    Actions:
+      * ``extend``        — add ``extend_months`` installments and spread the
+                            outstanding balance over the longer tenure (EMI drops).
+      * ``defer``         — push the next due date one month out and add one
+                            installment; the missed counter is reset.
+      * ``waive_penalty`` — clear any accrued late fees.
+    """
+    if not ObjectId.is_valid(loan_id):
+        raise LoanAccountNotFoundError
+    loan = await database[LOAN_ACCOUNTS_COLLECTION].find_one({"_id": ObjectId(loan_id)})
+    if loan is None:
+        raise LoanAccountNotFoundError
+    if loan.get("status") != LoanAccountStatus.ACTIVE.value:
+        raise LoanAccountStatusError
+
+    updates: dict[str, Any] = {"updated_at": datetime.now(UTC)}
+    note = ""
+
+    if action == "extend":
+        if extend_months < 1:
+            raise RestructureError("extend_months must be at least 1.")
+        paid = int(loan.get("installments_paid", 0))
+        total = int(loan.get("installments_total", 0))
+        new_total = total + extend_months
+        new_remaining = max(new_total - paid, 1)
+        outstanding = float(loan.get("outstanding_balance") or 0)
+        new_emi = round(outstanding / new_remaining, 2)
+        updates["installments_total"] = new_total
+        updates["tenure_months"] = int(loan.get("tenure_months", 0)) + extend_months
+        updates["monthly_emi"] = new_emi
+        updates["missed_installments"] = 0
+        note = (
+            f"Your loan tenure was extended by {extend_months} month(s). "
+            f"Your new EMI is NPR {new_emi}."
+        )
+    elif action == "defer":
+        updates["installments_total"] = int(loan.get("installments_total", 0)) + 1
+        updates["tenure_months"] = int(loan.get("tenure_months", 0)) + 1
+        due = loan.get("next_due_date")
+        if isinstance(due, datetime):
+            updates["next_due_date"] = add_one_month(due)
+        updates["missed_installments"] = 0
+        note = "One installment was deferred to the end of your loan. The due date moved forward one month."
+    elif action == "waive_penalty":
+        updates["penalty_due"] = 0.0
+        note = "Your accrued late fees have been waived."
+    else:
+        raise RestructureError(f"Unknown restructure action: {action}")
+
+    updated = await database[LOAN_ACCOUNTS_COLLECTION].find_one_and_update(
+        {"_id": loan["_id"]},
+        {"$set": updates},
+        return_document=ReturnDocument.AFTER,
+    )
+    if updated is None:
+        raise LoanAccountNotFoundError
+
+    applicant_id = str(loan.get("applicant_id") or "")
+    if applicant_id and note:
+        try:
+            await create_notification(
+                database=database,
+                user_id=applicant_id,
+                title="Loan restructured",
+                message=note,
+            )
+        except Exception:  # noqa: BLE001 - notifications are best-effort
+            pass
+    return updated
 
 
 async def record_payment(
@@ -283,12 +397,30 @@ async def process_overdue(database: AsyncIOMotorDatabase) -> dict[str, Any]:
             continue
 
         missed = int(loan.get("missed_installments", 0)) + 1
+        # Accrue a late fee for this overdue installment (% of the EMI).
+        emi = float(loan.get("monthly_emi") or 0)
+        late_fee = round(emi * get_settings().late_fee_percent / 100, 2)
+        new_penalty = round(float(loan.get("penalty_due") or 0) + late_fee, 2)
         updates: dict[str, Any] = {
             "missed_installments": missed,
+            "penalty_due": new_penalty,
             "next_due_date": add_one_month(due),
             "updated_at": now,
         }
         applicant_id = str(loan.get("applicant_id"))
+        if late_fee > 0 and ObjectId.is_valid(applicant_id):
+            try:
+                await create_notification(
+                    database=database,
+                    user_id=applicant_id,
+                    title="Late fee applied",
+                    message=(
+                        f"An EMI was missed, so a late fee of NPR {late_fee} was added. "
+                        f"Total late fees due: NPR {new_penalty}."
+                    ),
+                )
+            except Exception:  # noqa: BLE001 - best-effort
+                pass
         if missed >= threshold:
             updates["status"] = LoanAccountStatus.DEFAULTED.value
             if ObjectId.is_valid(applicant_id):

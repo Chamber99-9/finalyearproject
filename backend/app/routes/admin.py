@@ -16,6 +16,7 @@ from app.schemas.admin import (
     UserRoleUpdateRequest,
 )
 from app.schemas.application import ApplicationResponse
+from app.schemas.loans import LoanAccountResponse
 from app.schemas.officer import InterestRateUpdateRequest
 from app.schemas.payments import PaymentResponse
 from app.schemas.user import UserResponse
@@ -36,7 +37,12 @@ from app.services.clock_service import (
     reset_clock,
     simulated_now,
 )
-from app.services.loan_account_service import process_due_reminders, process_overdue
+from app.services.loan_account_service import (
+    list_customer_loans,
+    process_due_reminders,
+    process_overdue,
+    serialize_loan_account,
+)
 from app.services.notification_service import create_notification
 from app.services.user_service import serialize_user, set_user_blacklist
 from app.services.officer_service import (
@@ -154,6 +160,17 @@ async def read_user_statement(
     with its receipt fields), newest first — admin only."""
     payments = await list_payments_for_applicant(database, user_id)
     return [serialize_payment(payment) for payment in payments]
+
+
+@router.get("/users/{user_id}/loans", response_model=list[LoanAccountResponse])
+async def read_user_loans(
+    user_id: str,
+    current_user: Annotated[dict, Depends(require_admin)],
+    database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+) -> list[dict]:
+    """A customer's loan accounts (for restructuring controls) — admin only."""
+    loans = await list_customer_loans(database, user_id)
+    return [serialize_loan_account(loan) for loan in loans]
 
 
 # --- Blacklist control (admin) ---------------------------------------------

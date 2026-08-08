@@ -11,11 +11,13 @@ ENV PYTHONUNBUFFERED=1 \
     # production to keep them across redeploys (see DEPLOYMENT.md).
     UPLOAD_DIR=/app/uploads
 
-# System dependency: the Tesseract OCR engine + English language data.
+# System dependency: the Tesseract OCR engine + English and Nepali (Devanagari)
+# language data. tesseract-ocr-nep lets OCR read Nepali names/text on documents.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         tesseract-ocr \
         tesseract-ocr-eng \
+        tesseract-ocr-nep \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

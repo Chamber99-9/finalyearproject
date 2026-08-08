@@ -92,6 +92,27 @@ def configure_tesseract_command() -> None:
     pytesseract.pytesseract.tesseract_cmd = str(tesseract_path)
 
 
+def _ocr_languages() -> str:
+    """Configured Tesseract languages (default 'eng+nep' for Devanagari)."""
+    return get_settings().ocr_languages.strip() or "eng"
+
+
+def _image_to_string_with_langs(image: Any) -> str:
+    """Run image OCR with the configured languages, falling back to English.
+
+    A missing language pack (e.g. Nepali 'nep' not installed) makes Tesseract
+    raise; rather than fail the whole upload, retry in English so at least the
+    Roman text and digits are still read.
+    """
+    langs = _ocr_languages()
+    try:
+        return pytesseract.image_to_string(image, lang=langs)
+    except pytesseract.TesseractError:
+        if langs != "eng":
+            return pytesseract.image_to_string(image, lang="eng")
+        raise
+
+
 def extract_document_text(file_path: Path, content_type: str | None) -> str:
     """Extract text from an uploaded document — images via Tesseract, PDFs via
     pdfplumber.
@@ -110,7 +131,7 @@ def extract_document_text(file_path: Path, content_type: str | None) -> str:
             raise OCRUnreadableFileError from error
         try:
             configure_tesseract_command()
-            return pytesseract.image_to_string(normalized_image,lang="eng+nep").strip()
+            return _image_to_string_with_langs(normalized_image).strip()
         except pytesseract.TesseractNotFoundError as error:
             raise OCRNotConfiguredError from error
         except pytesseract.TesseractError as error:
@@ -155,10 +176,21 @@ async def extract_and_save_ocr_result(
 
     try:
         configure_tesseract_command()
-        ocr_data = pytesseract.image_to_data(
-            normalized_image,
-            output_type=pytesseract.Output.DICT,
-        )
+        try:
+            ocr_data = pytesseract.image_to_data(
+                normalized_image,
+                output_type=pytesseract.Output.DICT,
+                lang=_ocr_languages(),
+            )
+        except pytesseract.TesseractError:
+            # Language pack (e.g. Nepali 'nep') missing -> fall back to English.
+            if _ocr_languages() == "eng":
+                raise
+            ocr_data = pytesseract.image_to_data(
+                normalized_image,
+                output_type=pytesseract.Output.DICT,
+                lang="eng",
+            )
     except pytesseract.TesseractNotFoundError as error:
         raise OCRNotConfiguredError from error
     except pytesseract.TesseractError as error:

@@ -84,7 +84,15 @@ class Settings(BaseSettings):
     auth_rate_limit_window_seconds: int = 60
     expensive_rate_limit_count: int = 20
     expensive_rate_limit_window_seconds: int = 60
+    # Late fee charged per overdue installment, as a percentage of the EMI.
+    late_fee_percent: float = 5.0
+
     tesseract_cmd: str = ""
+    # Tesseract OCR languages. "eng+nep" reads both English and Devanagari
+    # (Nepali) so a citizenship name printed in देवनागरी can be extracted.
+    # Requires the Nepali language pack (tesseract-ocr-nep / nep.traineddata);
+    # if it is missing, OCR falls back to English automatically.
+    ocr_languages: str = "eng+nep"
 
     model_config = SettingsConfigDict(
         env_file=".env",

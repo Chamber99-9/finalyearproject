@@ -11,21 +11,30 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.auth.dependencies import get_authenticated_user_id, require_admin, require_customer
+from app.auth.dependencies import (
+    get_authenticated_user_id,
+    require_admin,
+    require_customer,
+    require_officer_or_admin,
+)
 from app.database import get_database
 from app.schemas.loans import (
     LoanAccountResponse,
     OverdueResponse,
     PaymentResponse,
     RemindersResponse,
+    RestructureRequest,
 )
 from app.services.loan_account_service import (
     LoanAccountNotFoundError,
     LoanAccountStatusError,
+    RestructureError,
+    get_loan_schedule,
     list_customer_loans,
     process_due_reminders,
     process_overdue,
     record_payment,
+    restructure_loan,
     serialize_loan_account,
 )
 
@@ -64,6 +73,56 @@ async def pay_emi(
 
     amount_paid = loan.pop("_last_payment", 0.0)
     return {"amount_paid": amount_paid, "loan": serialize_loan_account(loan)}
+
+
+@router.get("/{loan_id}/schedule")
+async def read_loan_schedule(
+    loan_id: str,
+    current_user: Annotated[dict, Depends(require_customer)],
+    database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+) -> dict:
+    """Amortization schedule for one of the customer's own loans."""
+    applicant_id = get_authenticated_user_id(current_user)
+    try:
+        return await get_loan_schedule(database, loan_id, applicant_id)
+    except LoanAccountNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Loan account not found.",
+        ) from error
+
+
+@router.post("/{loan_id}/restructure", response_model=LoanAccountResponse)
+async def restructure_loan_account(
+    loan_id: str,
+    payload: RestructureRequest,
+    current_user: Annotated[dict, Depends(require_officer_or_admin)],
+    database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+) -> dict:
+    """Officer/admin: extend tenure, defer an installment, or waive late fees."""
+    try:
+        loan = await restructure_loan(
+            database,
+            loan_id,
+            action=payload.action,
+            extend_months=payload.extend_months,
+        )
+    except LoanAccountNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Loan account not found.",
+        ) from error
+    except LoanAccountStatusError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only active loans can be restructured.",
+        ) from error
+    except RestructureError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+    return serialize_loan_account(loan)
 
 
 @router.post("/maintenance/reminders", response_model=RemindersResponse)

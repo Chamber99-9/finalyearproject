@@ -114,12 +114,17 @@ async def initiate_payment(
     provider = (method or settings.payment_provider or "mock").lower()
     now = await simulated_now(database)
     # The EMI is payable at any time on an active loan (the earlier 7-day window
-    # restriction was removed so a customer is never blocked from paying).
-    amount = float(loan.get("monthly_emi") or 0)
+    # restriction was removed so a customer is never blocked from paying). Any
+    # accrued late fee is charged on top of the EMI.
+    emi_amount = float(loan.get("monthly_emi") or 0)
+    penalty_amount = round(float(loan.get("penalty_due") or 0), 2)
+    amount = round(emi_amount + penalty_amount, 2)
     document = {
         "loan_id": loan_id,
         "applicant_id": applicant_id,
         "amount": amount,
+        "emi_amount": emi_amount,
+        "penalty_amount": penalty_amount,
         "kind": EMI_KIND,
         "status": PENDING,
         "provider": "mock_gateway",
@@ -420,6 +425,19 @@ async def _settle(
         {"$set": fields},
         return_document=ReturnDocument.AFTER,
     )
+    # A settled EMI payment that included a late fee clears the loan's accrued
+    # penalty (the fee was charged on top of the EMI).
+    if (
+        payment.get("kind") != PREPAYMENT_KIND
+        and float(payment.get("penalty_amount") or 0) > 0
+    ):
+        await database["loan_accounts"].update_one(
+            {"_id": ObjectId(str(payment["loan_id"]))}
+            if ObjectId.is_valid(str(payment.get("loan_id")))
+            else {"_id": payment.get("loan_id")},
+            {"$set": {"penalty_due": 0.0}},
+        )
+
     # Email the customer a payment receipt. This runs exactly once per payment,
     # because _settle short-circuits when the payment is already SUCCESS.
     if settled is not None:
