@@ -110,7 +110,7 @@ def extract_document_text(file_path: Path, content_type: str | None) -> str:
             raise OCRUnreadableFileError from error
         try:
             configure_tesseract_command()
-            return pytesseract.image_to_string(normalized_image).strip()
+            return pytesseract.image_to_string(normalized_image,lang="eng+nep").strip()
         except pytesseract.TesseractNotFoundError as error:
             raise OCRNotConfiguredError from error
         except pytesseract.TesseractError as error:

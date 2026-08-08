@@ -64,9 +64,7 @@ const documentOptions: Array<{ value: DocumentType; label: string; required: boo
   { value: "citizenship_document", label: "Citizenship document", required: true },
   { value: "salary_slip", label: "Salary slip", required: true },
   { value: "bank_statement", label: "Bank statement", required: true },
-  { value: "property_papers", label: "Collateral documents", required: true },
-  { value: "recommendation_letter", label: "Recommendation letter", required: false },
-  { value: "supporting_document", label: "Optional supporting document", required: false }
+  { value: "property_papers", label: "Collateral documents", required: true }
 ];
 
 const employmentOptions = [
@@ -1027,16 +1025,6 @@ function FinalDetailsForm({
           value={form.repayment_history}
         />
       </div>
-      {eligibility?.requires_collateral ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-          <span className="text-sm font-semibold text-amber-900">Collateral required</span>
-          <p className="mt-1 text-xs text-amber-800">
-            This loan type is secured — upload the mandatory collateral document (land
-            ownership / property paper) on the Documents step for officer review.
-          </p>
-        </div>
-      ) : null}
-
       <label className="block">
         <span className="text-sm font-medium text-slate-700">Loan purpose</span>
         <textarea

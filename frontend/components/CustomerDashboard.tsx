@@ -130,25 +130,30 @@ export function CustomerDashboard() {
             documents for officer review.
           </p>
         </div>
-        {kycStatus === "verified" ? (
-          <Link className="btn-primary px-5 py-3" href="/applications/new">
-            Start new loan application
+        <div className="flex flex-col items-stretch gap-2 sm:items-end">
+          <Link className="btn-secondary px-5 py-3" href="/dashboard/customer/statement">
+            View statement &amp; history
           </Link>
-        ) : (
-          <div className="text-right">
-            <button
-              className="btn-primary px-5 py-3 opacity-50"
-              disabled
-              title="Complete KYC verification first"
-              type="button"
-            >
+          {kycStatus === "verified" ? (
+            <Link className="btn-primary px-5 py-3 text-center" href="/applications/new">
               Start new loan application
-            </button>
-            <p className="mt-2 text-xs font-medium text-amber-700">
-              Verify your KYC below before applying.
-            </p>
-          </div>
-        )}
+            </Link>
+          ) : (
+            <div className="text-right">
+              <button
+                className="btn-primary px-5 py-3 opacity-50"
+                disabled
+                title="Complete KYC verification first"
+                type="button"
+              >
+                Start new loan application
+              </button>
+              <p className="mt-2 text-xs font-medium text-amber-700">
+                Verify your KYC below before applying.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
       {error ? (

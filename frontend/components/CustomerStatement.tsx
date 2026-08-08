@@ -1,0 +1,183 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+
+type Payment = {
+  id: string;
+  loan_id: string;
+  amount: number;
+  amount_paid?: number | null;
+  status: string;
+  provider: string;
+  provider_ref: string;
+  kind?: string | null;
+  outstanding_after?: number | null;
+  installments_paid_after?: number | null;
+  installments_total?: number | null;
+  next_due_date?: string | null;
+  settled_at?: string | null;
+  is_partial?: boolean | null;
+  shortfall?: number | null;
+  depositor_account_number?: string | null;
+  amount_deposited?: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+function money(n?: number | null) {
+  return n == null ? "—" : `NPR ${Number(n).toLocaleString()}`;
+}
+function dt(s?: string | null) {
+  return s ? new Date(s).toLocaleString() : "—";
+}
+function statusPill(status: string) {
+  const map: Record<string, string> = {
+    success: "bg-emerald-100 text-emerald-800",
+    awaiting_confirmation: "bg-amber-100 text-amber-800",
+    pending: "bg-slate-100 text-slate-700",
+    rejected: "bg-red-100 text-red-700",
+    failed: "bg-red-100 text-red-700"
+  };
+  return map[status] ?? "bg-slate-100 text-slate-700";
+}
+
+/** The customer's own payment statement + transaction history, with receipts. */
+export function CustomerStatement() {
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [openReceipt, setOpenReceipt] = useState<Payment | null>(null);
+
+  useEffect(() => {
+    async function load() {
+      setIsLoading(true);
+      try {
+        const r = await fetch("/api/payments", { cache: "no-store" });
+        const p = await r.json().catch(() => ({}));
+        if (r.ok) setPayments(p.payments ?? []);
+        else setError(p.error ?? "Could not load your statement.");
+      } catch {
+        setError("Could not reach the payment service.");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  const totals = useMemo(() => {
+    const paid = payments
+      .filter((x) => x.status === "success")
+      .reduce((sum, x) => sum + Number(x.amount_paid ?? x.amount ?? 0), 0);
+    return { count: payments.length, paid };
+  }, [payments]);
+
+  return (
+    <section className="page-wrap">
+      <div className="page-heading">
+        <div>
+          <p className="eyebrow">Customer dashboard</p>
+          <h1 className="mt-3 text-3xl font-bold text-slate-950 sm:text-4xl">My statement</h1>
+          <p className="mt-3 max-w-3xl text-base leading-7 text-slate-700">
+            Your full payment and transaction history. Total paid:{" "}
+            <span className="font-semibold">{money(totals.paid)}</span> across {totals.count} record(s).
+          </p>
+        </div>
+        <Link className="btn-secondary px-5 py-3" href="/dashboard/customer">
+          Back to dashboard
+        </Link>
+      </div>
+
+      {error ? <p className="alert-error mt-6">{error}</p> : null}
+
+      <div className="mt-6 table-shell overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="px-4 py-3">Date</th>
+              <th className="px-4 py-3">Type</th>
+              <th className="px-4 py-3">Amount</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Method</th>
+              <th className="px-4 py-3">Reference</th>
+              <th className="px-4 py-3">Balance after</th>
+              <th className="px-4 py-3">Receipt</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {isLoading ? (
+              <tr><td className="px-4 py-8 text-center text-slate-600" colSpan={8}>Loading…</td></tr>
+            ) : payments.length > 0 ? (
+              payments.map((p) => (
+                <tr key={p.id} className="align-top">
+                  <td className="px-4 py-3 text-slate-600">{dt(p.settled_at ?? p.created_at)}</td>
+                  <td className="px-4 py-3">{p.kind === "prepayment" ? "Advance" : "EMI"}</td>
+                  <td className="px-4 py-3 font-semibold text-slate-950">{money(p.amount_paid ?? p.amount)}</td>
+                  <td className="px-4 py-3">
+                    <span className={`status-pill ${statusPill(p.status)}`}>{p.status.replace(/_/g, " ")}</span>
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">{String(p.provider || "").replace(/_/g, " ")}</td>
+                  <td className="px-4 py-3 break-all text-slate-500">{p.provider_ref?.slice(0, 14)}…</td>
+                  <td className="px-4 py-3 text-slate-600">{money(p.outstanding_after)}</td>
+                  <td className="px-4 py-3">
+                    {p.status === "success" ? (
+                      <button
+                        className="text-xs font-semibold text-emerald-700 hover:text-emerald-800"
+                        onClick={() => setOpenReceipt(p)}
+                        type="button"
+                      >
+                        View receipt
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-400">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr><td className="px-4 py-8 text-center text-slate-600" colSpan={8}>No payments yet.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {openReceipt ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => setOpenReceipt(null)}
+        >
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex flex-col items-center text-center">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-2xl text-emerald-700">✓</span>
+              <h2 className="mt-2 text-xl font-bold text-slate-950">
+                {openReceipt.is_partial ? "Partial payment received" : "Payment receipt"}
+              </h2>
+            </div>
+            <dl className="mt-4 divide-y divide-slate-100 rounded-lg border border-slate-200 text-sm">
+              {[
+                ["Amount paid", money(openReceipt.amount_paid ?? openReceipt.amount)],
+                ["Type", openReceipt.kind === "prepayment" ? "Advance payment" : "EMI"],
+                ["Date", dt(openReceipt.settled_at)],
+                ["Method", String(openReceipt.provider || "").replace(/_/g, " ")],
+                ["Transaction ref", openReceipt.provider_ref],
+                ["Remaining balance", money(openReceipt.outstanding_after)],
+                ["Installments", openReceipt.installments_paid_after != null && openReceipt.installments_total != null
+                  ? `${openReceipt.installments_paid_after}/${openReceipt.installments_total}` : "—"],
+                ["Next due", openReceipt.next_due_date ? new Date(openReceipt.next_due_date).toLocaleDateString() : "—"]
+              ].map(([label, value]) => (
+                <div className="flex justify-between gap-3 px-4 py-2.5" key={label}>
+                  <dt className="text-slate-500">{label}</dt>
+                  <dd className="break-all text-right font-medium text-slate-800">{value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-4 flex gap-2">
+              <button className="btn-primary flex-1 px-4 py-2 text-sm" onClick={() => setOpenReceipt(null)} type="button">Close</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}

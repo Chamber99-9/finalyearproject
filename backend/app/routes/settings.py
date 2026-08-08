@@ -18,6 +18,7 @@ from app.schemas.settings import (
     LoanInterestRateResponse,
     LoanInterestRateUpdateRequest,
 )
+from app.models.user import UserRole
 from app.services.audit_service import AuditLogStorageError, create_audit_log
 from app.services.loan_settings_service import (
     LoanSettingsError,
@@ -26,6 +27,7 @@ from app.services.loan_settings_service import (
     set_base_lending_rate,
     set_personal_loan_interest_rate,
 )
+from app.services.notification_service import create_notifications_for_role
 
 router = APIRouter(prefix="/loan-settings", tags=["loan-settings"])
 
@@ -87,6 +89,20 @@ async def update_base_rate(
             detail="Base rate updated, but audit log could not be created.",
         ) from error
 
+    # Let every customer know the bank rate changed (best-effort).
+    try:
+        await create_notifications_for_role(
+            database=database,
+            role=UserRole.CUSTOMER,
+            title="Interest rate updated",
+            message=(
+                f"The bank base lending rate is now {base_rate}% p.a. "
+                "New loan applications will use the updated rate; existing loans are unchanged."
+            ),
+        )
+    except Exception:  # noqa: BLE001 - notifications are best-effort
+        pass
+
     return {"base_rate": base_rate}
 
 
@@ -123,5 +139,19 @@ async def update_personal_rate(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Interest rate updated, but audit log could not be created.",
         ) from error
+
+    # Notify every customer of the new Personal Loan rate (best-effort).
+    try:
+        await create_notifications_for_role(
+            database=database,
+            role=UserRole.CUSTOMER,
+            title="Personal loan rate updated",
+            message=(
+                f"The Personal Loan interest rate is now {rate}% p.a. "
+                "New applications will use the updated rate; existing loans are unchanged."
+            ),
+        )
+    except Exception:  # noqa: BLE001 - notifications are best-effort
+        pass
 
     return {"loan_type": LoanType.PERSONAL.value, "interest_rate": rate}

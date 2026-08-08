@@ -30,6 +30,7 @@ from app.services.payment_service import (
     get_payment_for_customer,
     initiate_payment,
     initiate_prepayment,
+    list_payments_for_applicant,
     mark_payment_submitted,
     process_webhook,
     serialize_payment,
@@ -133,6 +134,21 @@ async def initiate_loan_prepayment(
             detail="Advance amount must be between 1 and your outstanding balance.",
         ) from error
     return serialize_payment(payment)
+
+
+@payments_router.get("/mine")
+async def list_my_payments(
+    current_user: Annotated[dict, Depends(require_customer)],
+    database: Annotated[AsyncIOMotorDatabase, Depends(get_database)],
+) -> dict:
+    """The signed-in customer's full payment/statement history, newest first.
+
+    Declared before ``/{payment_id}`` so the literal ``/mine`` path is matched
+    first instead of being read as a payment id.
+    """
+    applicant_id = get_authenticated_user_id(current_user)
+    payments = await list_payments_for_applicant(database, applicant_id)
+    return {"payments": [serialize_payment(payment) for payment in payments]}
 
 
 @payments_router.get("/{payment_id}", response_model=PaymentResponse)

@@ -43,7 +43,6 @@ LOAN_TYPE_INFO: list[dict[str, Any]] = [
     {"loan_type": LoanType.HOME.value, "label": "Home loan", "requires_collateral_above": 200000, "max_tenure_years": 25},
     {"loan_type": LoanType.AUTO.value, "label": "Auto loan", "requires_collateral_above": 200000, "max_tenure_years": 10},
     {"loan_type": LoanType.EDUCATION.value, "label": "Education loan", "requires_collateral_above": 200000, "max_tenure_years": 10},
-    {"loan_type": LoanType.LOAN_AGAINST_SHARES.value, "label": "Loan against shares", "requires_collateral_above": 200000, "max_tenure_years": 3},
     {"loan_type": LoanType.BUSINESS.value, "label": "Business loan", "requires_collateral_above": 200000, "max_tenure_years": 10},
 ]
 

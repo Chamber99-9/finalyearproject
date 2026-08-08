@@ -31,6 +31,7 @@ from app.services.loan_account_service import (
     record_payment,
     record_prepayment,
 )
+from app.services.notification_service import create_notification
 
 PAYMENTS_COLLECTION = "payments"
 
@@ -423,7 +424,89 @@ async def _settle(
     # because _settle short-circuits when the payment is already SUCCESS.
     if settled is not None:
         await _send_payment_receipt_email(database, settled)
+        # In-app notifications (payment received + loan closed) and, if the loan
+        # is now fully repaid, a closure email. Best-effort — never blocks a
+        # settled payment.
+        await _notify_after_settlement(database, settled, loan)
     return settled
+
+
+async def _notify_after_settlement(
+    database: AsyncIOMotorDatabase,
+    payment: dict[str, Any],
+    loan: dict[str, Any],
+) -> None:
+    """Post-settlement in-app notifications (and loan-closed email)."""
+    applicant_id = str(payment.get("applicant_id") or "")
+    if not applicant_id:
+        return
+
+    is_prepayment = payment.get("kind") == PREPAYMENT_KIND
+    amount = payment.get("amount_paid")
+    amount_text = f"NPR {amount}" if amount is not None else f"NPR {payment.get('amount')}"
+    kind_text = "advance payment" if is_prepayment else "EMI payment"
+    balance = payment.get("outstanding_after")
+    message = f"Your {kind_text} of {amount_text} was received."
+    if balance is not None:
+        message += f" Remaining balance: NPR {balance}."
+
+    try:
+        await create_notification(
+            database=database,
+            user_id=applicant_id,
+            title="Payment received",
+            message=message,
+        )
+    except Exception:  # noqa: BLE001 - notifications are best-effort
+        pass
+
+    # Loan fully repaid -> closure notification + email.
+    if str(loan.get("status")) == "completed":
+        try:
+            await create_notification(
+                database=database,
+                user_id=applicant_id,
+                title="Loan fully repaid",
+                message="Congratulations! Your loan is now fully repaid and has been closed.",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        await _send_loan_closed_email(database, payment)
+
+
+async def _send_loan_closed_email(
+    database: AsyncIOMotorDatabase, payment: dict[str, Any]
+) -> None:
+    """Email the customer that their loan is fully repaid and closed (best-effort)."""
+    applicant_id = str(payment.get("applicant_id") or "")
+    user = None
+    if ObjectId.is_valid(applicant_id):
+        user = await database["users"].find_one({"_id": ObjectId(applicant_id)})
+    email = (user or {}).get("email")
+    if not email:
+        return
+
+    body = "\n".join(
+        [
+            "Dear customer,",
+            "",
+            "Congratulations! Your loan has been fully repaid and is now closed.",
+            f"Final transaction reference: {payment.get('provider_ref')}",
+            "",
+            "Thank you for banking with Sajilo Loan.",
+            "",
+            "— Sajilo Loan",
+        ]
+    )
+    try:
+        await send_email(
+            database=database,
+            to_email=str(email),
+            subject="Sajilo Loan — your loan is fully repaid",
+            body=body,
+        )
+    except Exception:  # noqa: BLE001 - closure email is best-effort
+        pass
 
 
 async def _send_payment_receipt_email(

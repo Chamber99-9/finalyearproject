@@ -83,10 +83,12 @@ export function CustomerLoans() {
     }
   }
 
-  async function prepayLoan(loan: LoanAccount) {
+  async function prepayLoan(loan: LoanAccount, override?: number) {
     setError("");
     setSuccess("");
-    const amount = Number(prepayAmounts[loan.id]);
+    // `override` lets the "Pay entire loan" button send the full outstanding
+    // balance directly, without the customer having to type it in.
+    const amount = override ?? Number(prepayAmounts[loan.id]);
     if (!(amount >= 1) || amount > loan.outstanding_balance) {
       setError(`Advance amount must be between 1 and ${formatMoney(loan.outstanding_balance)}.`);
       return;
@@ -197,6 +199,16 @@ export function CustomerLoans() {
                         {prepayingId === loan.id ? "..." : "Pay advance"}
                       </button>
                     </div>
+                    <button
+                      className="mt-2 w-full whitespace-nowrap rounded-md border border-emerald-600 px-3 py-1.5 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-50"
+                      disabled={prepayingId === loan.id}
+                      onClick={() => prepayLoan(loan, loan.outstanding_balance)}
+                      type="button"
+                    >
+                      {prepayingId === loan.id
+                        ? "..."
+                        : `Pay entire loan (${formatMoney(loan.outstanding_balance)})`}
+                    </button>
                   </div>
                 </div>
               ) : (

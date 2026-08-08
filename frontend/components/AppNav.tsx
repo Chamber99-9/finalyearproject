@@ -117,6 +117,15 @@ export function AppNav() {
             >
               My dashboard
             </Link>
+            {user.role === "customer" ? (
+              <Link
+                className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                href="/dashboard/customer/statement"
+                onClick={() => setMenuOpen(false)}
+              >
+                My statement
+              </Link>
+            ) : null}
             <button
               className="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
               onClick={toggleMfa}
