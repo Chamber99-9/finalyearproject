@@ -140,8 +140,9 @@ export function KycPanel() {
             <span className="text-sm font-medium text-slate-700">Date of birth</span>
             <input
               className="mt-2 w-full px-3 py-2.5"
+              max={new Date().toISOString().slice(0, 10)}
               onChange={(e) => setForm((f) => ({ ...f, date_of_birth: e.target.value }))}
-              placeholder="YYYY-MM-DD"
+              type="date"
               value={form.date_of_birth}
             />
           </label>

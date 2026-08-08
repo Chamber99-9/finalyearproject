@@ -64,7 +64,7 @@ const documentOptions: Array<{ value: DocumentType; label: string; required: boo
   { value: "citizenship_document", label: "Citizenship document", required: true },
   { value: "salary_slip", label: "Salary slip", required: true },
   { value: "bank_statement", label: "Bank statement", required: true },
-  { value: "property_papers", label: "Collateral document (land ownership / property paper)", required: false },
+  { value: "property_papers", label: "Collateral documents", required: true },
   { value: "recommendation_letter", label: "Recommendation letter", required: false },
   { value: "supporting_document", label: "Optional supporting document", required: false }
 ];
@@ -631,12 +631,8 @@ export function LoanApplicationForm() {
         eligibility.max_amount
       )}.`;
     }
-    if (eligibility?.requires_collateral && Number(form.collateral_value) <= 0) {
-      return "This loan requires collateral. Enter the collateral type and value.";
-    }
-    if (eligibility?.requires_collateral && form.collateral_type.trim().length < 2) {
-      return "This loan requires collateral. Enter the collateral type.";
-    }
+    // Collateral is proven by the uploaded collateral document (checked on the
+    // server at submit) — no collateral type/value is asked here anymore.
     return "";
   }
 
@@ -1032,29 +1028,12 @@ function FinalDetailsForm({
         />
       </div>
       {eligibility?.requires_collateral ? (
-        <div className="grid gap-4 rounded-lg border border-amber-200 bg-amber-50 p-4 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <span className="text-sm font-semibold text-amber-900">
-              Collateral required
-            </span>
-            <p className="mt-1 text-xs text-amber-800">
-              This loan type is secured — pledge collateral and upload the
-              collateral document (land ownership / property paper) for officer review.
-            </p>
-          </div>
-          <TextField
-            label="Collateral type"
-            name="collateral_type"
-            onChange={onChange}
-            value={form.collateral_type}
-          />
-          <TextField
-            label="Collateral value"
-            name="collateral_value"
-            onChange={onChange}
-            type="number"
-            value={form.collateral_value}
-          />
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <span className="text-sm font-semibold text-amber-900">Collateral required</span>
+          <p className="mt-1 text-xs text-amber-800">
+            This loan type is secured — upload the mandatory collateral document (land
+            ownership / property paper) on the Documents step for officer review.
+          </p>
         </div>
       ) : null}
 

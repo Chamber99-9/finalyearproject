@@ -341,11 +341,8 @@ async def submit_owned_application(
     if cap <= 0 or amount > cap:
         raise LoanAmountExceedsCapError(cap)
     if requires_collateral(loan_type, amount):
-        collateral_value = application.get("collateral_value")
-        if not collateral_value or float(collateral_value) <= 0:
-            raise CollateralRequiredError
-        # Collateral loans must also be backed by an account statement and
-        # property (ownership) papers.
+        # Secured loans just need the collateral document uploaded — no separate
+        # collateral type/value is asked anymore.
         documents = await list_documents_for_application(database, application_id)
         uploaded_types = {str(document.get("document_type")) for document in documents}
         missing = [

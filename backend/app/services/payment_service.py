@@ -112,12 +112,8 @@ async def initiate_payment(
     # The customer may pick a method per payment; default to the configured rail.
     provider = (method or settings.payment_provider or "mock").lower()
     now = await simulated_now(database)
-    # EMI can only be paid within the window before the due date (or once overdue).
-    due = loan.get("next_due_date")
-    window = timedelta(days=settings.emi_payment_window_days)
-    if isinstance(due, datetime) and now < (due - window):
-        raise PaymentWindowError(due - window)
-
+    # The EMI is payable at any time on an active loan (the earlier 7-day window
+    # restriction was removed so a customer is never blocked from paying).
     amount = float(loan.get("monthly_emi") or 0)
     document = {
         "loan_id": loan_id,
@@ -194,10 +190,19 @@ async def initiate_payment(
             "updated_at": datetime.now(UTC),
         }
     else:
-        updates = {"checkout_url": f"/payments/{payment_id}/checkout"}
+        updates = {
+            "provider": "mock_gateway",
+            "checkout_url": f"/payments/{payment_id}/checkout",
+        }
 
     await database[PAYMENTS_COLLECTION].update_one({"_id": document["_id"]}, {"$set": updates})
     document.update(updates)
+
+    # Demo mode: the mock rail settles the payment immediately (no external
+    # gateway), so the customer goes straight to a paid receipt and the receipt
+    # email is sent — reliable for a localhost demo/defense.
+    if provider == "mock":
+        return await _settle(database, document)
     return document
 
 
@@ -339,6 +344,11 @@ async def initiate_prepayment(
     )
     await database[PAYMENTS_COLLECTION].update_one({"_id": document["_id"]}, {"$set": updates})
     document.update(updates)
+
+    # Demo mode: settle the advance payment immediately (see initiate_payment).
+    provider = (method or get_settings().payment_provider or "mock").lower()
+    if provider == "mock":
+        return await _settle(database, document)
     return document
 
 

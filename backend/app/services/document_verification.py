@@ -22,6 +22,11 @@ GATED_DOCUMENT_TYPES = {
     "citizenship_document",
     "salary_slip",
     "bank_statement",
+    # Collateral slot only accepts a real land-ownership / property document
+    # (rejects e.g. a bank statement dropped in there). Needs OCR to read the
+    # Devanagari text (Nepali language pack); if OCR is unavailable it falls
+    # through to manual officer review rather than blocking.
+    "property_papers",
 }
 # Minimum detection confidence to accept a gated document.
 ACCEPT_MIN_CONFIDENCE = 0.5
